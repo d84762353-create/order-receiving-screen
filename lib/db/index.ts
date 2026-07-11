@@ -1,13 +1,26 @@
 import { newDb } from 'pg-mem'
+import { Pool as PgPool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import * as schema from './schema'
 
-// Create a pg-mem database in-memory
-const memDb = newDb()
+let pool: any;
 
-// Get Pool constructor using standard pg-mem adapter API
-const { Pool } = memDb.adapters.createPg()
-export const pool = new Pool()
+if (process.env.DATABASE_URL) {
+  // Use real PostgreSQL if URL is provided
+  pool = new PgPool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined
+  })
+  console.log('[DB] Connected to external PostgreSQL database')
+} else {
+  // Fallback to pg-mem for local dev without a DB
+  console.warn('[DB] No DATABASE_URL found. Falling back to in-memory pg-mem database.')
+  const memDb = newDb()
+  const { Pool } = memDb.adapters.createPg()
+  pool = new Pool()
+}
+
+export { pool }
 export const db = drizzle(pool, { schema })
 
 // Automatically initialize schema tables if they do not exist

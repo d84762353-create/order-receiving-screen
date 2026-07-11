@@ -13,19 +13,24 @@ const operators = {
   'Moratelindo (Oxygen)': ['AS23947']
 }
 
-async function fetchPrefixes(asn) {
-  try {
-    const url = `https://stat.ripe.net/data/announced-prefixes/data.json?resource=${asn}`
-    const response = await fetch(url)
-    const data = await response.json()
-    if (data && data.data && data.data.prefixes) {
-      return data.data.prefixes.map(p => p.prefix)
+async function fetchPrefixes(asn, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const url = `https://stat.ripe.net/data/announced-prefixes/data.json?resource=${asn}`
+      const response = await fetch(url, { signal: AbortSignal.timeout(15000) })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = await response.json()
+      if (data && data.data && data.data.prefixes) {
+        return data.data.prefixes.map(p => p.prefix)
+      }
+      return []
+    } catch (error) {
+      console.warn(`[Retry ${i+1}/${retries}] Failed to fetch ASN ${asn}:`, error.message)
+      await new Promise(res => setTimeout(res, 2000)) // Wait 2s before retry
     }
-    return []
-  } catch (error) {
-    console.error(`Failed to fetch ASN ${asn}:`, error.message)
-    return []
   }
+  console.error(`Gagal total mengambil ASN ${asn} setelah ${retries} percobaan.`)
+  return []
 }
 
 async function main() {

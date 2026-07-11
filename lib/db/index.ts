@@ -20,6 +20,7 @@ async function initDatabase() {
         "email" TEXT NOT NULL UNIQUE,
         "emailVerified" BOOLEAN NOT NULL DEFAULT FALSE,
         "image" TEXT,
+        "role" TEXT NOT NULL DEFAULT 'driver',
         "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
         "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
       );
@@ -145,8 +146,13 @@ async function initDatabase() {
         "createdAt" TIMESTAMP NOT NULL DEFAULT NOW()
       );
     `)
+
   } catch (err) {
     console.error("Failed to initialize pg-mem database tables:", err)
   }
 }
+
+// Admin user seeding is now handled automatically by the admin login form
+// which uses better-auth's signUp API to properly create the user and account records.
+
 initDatabase()

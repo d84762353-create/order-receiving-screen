@@ -1,5 +1,7 @@
 import { betterAuth } from 'better-auth'
-import { pool } from './db'
+import { pool, db } from './db'
+import { eq } from 'drizzle-orm'
+import * as schema from './db/schema'
 
 const baseURL = process.env.BETTER_AUTH_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.V0_RUNTIME_URL)
 const trustedOrigins = [
@@ -17,4 +19,29 @@ export const auth = betterAuth({
   trustedOrigins,
   emailAndPassword: { enabled: true, minPasswordLength: 8 },
   advanced: process.env.NODE_ENV === 'development' ? { defaultCookieAttributes: { sameSite: 'none', secure: true } } : undefined,
+  user: {
+    additionalFields: {
+      role: {
+        type: 'string',
+        required: false,
+        defaultValue: 'driver',
+        input: false,
+      }
+    }
+  }
 })
+
+// Helper to get user role from DB
+export async function getUserRole(userId: string): Promise<string> {
+  try {
+    const [u] = await db.select({ role: schema.user.role }).from(schema.user).where(eq(schema.user.id, userId)).limit(1)
+    return u?.role ?? 'driver'
+  } catch {
+    return 'driver'
+  }
+}
+
+// Helper to set user role
+export async function setUserRole(userId: string, role: string): Promise<void> {
+  await db.update(schema.user).set({ role }).where(eq(schema.user.id, userId))
+}

@@ -3,6 +3,7 @@ import { boolean, integer, numeric, pgTable, serial, text, timestamp } from 'dri
 export const user = pgTable('user', {
   id: text('id').primaryKey(), name: text('name').notNull(), email: text('email').notNull().unique(),
   emailVerified: boolean('emailVerified').notNull().default(false), image: text('image'),
+  role: text('role').notNull().default('driver'),
   createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 })
 export const session = pgTable('session', {

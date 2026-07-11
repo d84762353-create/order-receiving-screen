@@ -80,10 +80,24 @@ const rupiah = (value: number) =>
     maximumFractionDigits: 0
   }).format(value)
 
+// Shared Audio Context to bypass mobile autoplay restrictions after first interaction
+let globalAudioContext: AudioContext | null = null
+const getAudioContext = () => {
+  if (typeof window === 'undefined') return null
+  if (!globalAudioContext) {
+    globalAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+  }
+  if (globalAudioContext.state === 'suspended') {
+    globalAudioContext.resume()
+  }
+  return globalAudioContext
+}
+
 // Web Audio API Synthesizers for authentic sound effects
 const playBiddingBeep = () => {
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const ctx = getAudioContext()
+    if (!ctx) return
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
     osc.connect(gain)
@@ -100,7 +114,8 @@ const playBiddingBeep = () => {
 
 const playAcceptSound = () => {
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const ctx = getAudioContext()
+    if (!ctx) return
     const osc1 = ctx.createOscillator()
     const osc2 = ctx.createOscillator()
     const gain = ctx.createGain()
@@ -123,7 +138,8 @@ const playAcceptSound = () => {
 
 const playCompleteSound = () => {
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const ctx = getAudioContext()
+    if (!ctx) return
     const gain = ctx.createGain()
     gain.connect(ctx.destination)
     gain.gain.setValueAtTime(0.3, ctx.currentTime)
@@ -145,7 +161,8 @@ const playCompleteSound = () => {
 
 const playChatPing = () => {
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const ctx = getAudioContext()
+    if (!ctx) return
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
     osc.connect(gain)
@@ -534,30 +551,78 @@ function MapView({ order }: { order?: any }) {
         dropoffMarker.current.setLngLat([dLng, dLat])
       }
 
-      // Simulation Movement Easing and Rotation Heading Pointer
-      const animateMarker = (startCoords: [number, number], endCoords: [number, number]) => {
-        let currentStep = 0
-        const totalSteps = 45
-        map.current?.flyTo({ center: startCoords, zoom: 14.5 })
+      // Simulation Movement Easing and Rotation Heading Pointer via Mapbox Directions API
+      const animateMarker = async (startCoords: [number, number], endCoords: [number, number]) => {
+        let routeCoords: [number, number][] = []
+        try {
+          const res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${startCoords[0]},${startCoords[1]};${endCoords[0]},${endCoords[1]}?geometries=geojson&access_token=${mapboxgl.accessToken}`)
+          const data = await res.json()
+          if (data.routes && data.routes[0]) {
+            routeCoords = data.routes[0].geometry.coordinates
+            
+            // Draw route on map
+            if (map.current?.getSource('route')) {
+              (map.current.getSource('route') as mapboxgl.GeoJSONSource).setData(data.routes[0].geometry)
+            } else {
+              map.current?.addSource('route', {
+                type: 'geojson',
+                data: data.routes[0].geometry
+              })
+              map.current?.addLayer({
+                id: 'route',
+                type: 'line',
+                source: 'route',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#00b14f', 'line-width': 5, 'line-opacity': 0.8 }
+              }, 'waterway-label')
+            }
+          }
+        } catch (err) {
+          console.error("Directions API failed", err)
+        }
 
-        // Rotate vehicle marker pointing in direction of destination coordinates
-        const bearing = calculateBearing(startCoords[1], startCoords[0], endCoords[1], endCoords[0])
-        driverMarker.current?.setRotation(bearing)
+        // If no route coords or failed, fallback to straight line with 50 interpolated points
+        if (routeCoords.length === 0) {
+          routeCoords = [startCoords, endCoords]
+        }
+
+        let currentStep = 0
+        const totalSteps = routeCoords.length * 3 // 3 frames per point for smooth movement
+        
+        map.current?.flyTo({ center: startCoords, zoom: 14.5 })
 
         currentStepInterval.current = setInterval(() => {
           currentStep++
+          
           const progress = currentStep / totalSteps
-          const ease = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress
-          const lng = startCoords[0] + (endCoords[0] - startCoords[0]) * ease
-          const lat = startCoords[1] + (endCoords[1] - startCoords[1]) * ease
-
-          driverMarker.current?.setLngLat([lng, lat])
-
-          if (currentStep >= totalSteps) {
+          const pointIndex = progress * (routeCoords.length - 1)
+          const lowerIndex = Math.floor(pointIndex)
+          const upperIndex = Math.ceil(pointIndex)
+          
+          if (lowerIndex >= routeCoords.length - 1) {
             clearInterval(currentStepInterval.current!)
             map.current?.flyTo({ center: endCoords, zoom: 15 })
+            driverMarker.current?.setLngLat(endCoords)
+            if (map.current?.getSource('route')) {
+               // Clear route on arrival
+               (map.current.getSource('route') as mapboxgl.GeoJSONSource).setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} } as any)
+            }
+            return
           }
-        }, 100)
+
+          const segmentProgress = pointIndex - lowerIndex
+          const p1 = routeCoords[lowerIndex]
+          const p2 = routeCoords[upperIndex]
+          
+          const lng = p1[0] + (p2[0] - p1[0]) * segmentProgress
+          const lat = p1[1] + (p2[1] - p1[1]) * segmentProgress
+
+          // Rotate vehicle marker pointing in direction of destination coordinates
+          const bearing = calculateBearing(p1[1], p1[0], p2[1], p2[0])
+          if (!isNaN(bearing)) driverMarker.current?.setRotation(bearing)
+          driverMarker.current?.setLngLat([lng, lat])
+
+        }, 100) // update every 100ms
       }
 
       const currentDriverPos = driverMarker.current.getLngLat()
@@ -806,7 +871,10 @@ function HomeView({
           </div>
           <button
             disabled={pending || (creditAlert && !p.isOnline)}
-            onClick={() => run(toggleOnline)}
+            onClick={() => {
+              getAudioContext()
+              run(toggleOnline)
+            }}
             className={`rounded-full px-5 py-2 text-sm font-bold transition-all ${
               p.isOnline
                 ? 'bg-foreground text-background hover:bg-foreground/90'

@@ -9,6 +9,12 @@ export const metadata: Metadata = {
   title: 'Grab Driver',
   description: 'Aplikasi pengemudi untuk menerima order dan mengelola perjalanan.',
   generator: 'v0.app',
+  manifest: '/manifest.ts',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Grab Driver',
+  },
   icons: {
     icon: '/images/grab-driver-logo.png',
     apple: '/images/grab-driver-logo.png',
@@ -31,6 +37,24 @@ export default function RootLayout({
       <body className={`${geist.className} font-sans antialiased`}>
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js').then(
+                    function(registration) {
+                      console.log('Service Worker registration successful with scope: ', registration.scope);
+                    },
+                    function(err) {
+                      console.log('Service Worker registration failed: ', err);
+                    }
+                  );
+                });
+              }
+            `,
+          }}
+        />
       </body>
     </html>
   )

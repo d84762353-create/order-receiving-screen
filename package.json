@@ -42,7 +42,8 @@
   "pnpm": {
     "overrides": {
       "hono": "4.12.25"
-    }
+    },
+    "onlyBuiltDependencies": []
   },
   "packageManager": "pnpm@11.11.0"
 }

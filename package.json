@@ -43,5 +43,6 @@
     "overrides": {
       "hono": "4.12.25"
     }
-  }
+  },
+  "packageManager": "pnpm@11.11.0"
 }

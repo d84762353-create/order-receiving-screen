@@ -1,42 +1,47 @@
-import { boolean, integer, numeric, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core'
+import { boolean, integer, numeric, pgTable, serial, text, timestamp, unique } from 'drizzle-orm/pg-core'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(), name: text('name').notNull(), email: text('email').notNull().unique(),
-  emailVerified: boolean('emailVerified').notNull().default(false), image: text('image'),
-  role: text('role').notNull().default('driver'),
+  emailVerified: boolean('emailVerified').notNull().default(false), image: text('image'), role: text('role').notNull().default('driver'),
   createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 })
 export const session = pgTable('session', {
   id: text('id').primaryKey(), expiresAt: timestamp('expiresAt').notNull(), token: text('token').notNull().unique(),
-  createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
-  ipAddress: text('ipAddress'), userAgent: text('userAgent'), userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(), ipAddress: text('ipAddress'), userAgent: text('userAgent'),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }),
 })
 export const account = pgTable('account', {
   id: text('id').primaryKey(), accountId: text('accountId').notNull(), providerId: text('providerId').notNull(),
-  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }), accessToken: text('accessToken'),
-  refreshToken: text('refreshToken'), idToken: text('idToken'), accessTokenExpiresAt: timestamp('accessTokenExpiresAt'),
-  refreshTokenExpiresAt: timestamp('refreshTokenExpiresAt'), scope: text('scope'), password: text('password'),
+  userId: text('userId').notNull().references(() => user.id, { onDelete: 'cascade' }), accessToken: text('accessToken'), refreshToken: text('refreshToken'), idToken: text('idToken'),
+  accessTokenExpiresAt: timestamp('accessTokenExpiresAt'), refreshTokenExpiresAt: timestamp('refreshTokenExpiresAt'), scope: text('scope'), password: text('password'),
   createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 })
 export const verification = pgTable('verification', {
-  id: text('id').primaryKey(), identifier: text('identifier').notNull(), value: text('value').notNull(),
-  expiresAt: timestamp('expiresAt').notNull(), createdAt: timestamp('createdAt').defaultNow(), updatedAt: timestamp('updatedAt').defaultNow(),
+  id: text('id').primaryKey(), identifier: text('identifier').notNull(), value: text('value').notNull(), expiresAt: timestamp('expiresAt').notNull(),
+  createdAt: timestamp('createdAt').defaultNow(), updatedAt: timestamp('updatedAt').defaultNow(),
 })
 export const driverProfiles = pgTable('driver_profiles', {
-  id: serial('id').primaryKey(), userId: text('userId').notNull().unique(), phone: text('phone'), city: text('city').default('Jakarta'),
-  verificationStatus: text('verificationStatus').notNull().default('pending'), isOnline: boolean('isOnline').notNull().default(false),
-  turboEnabled: boolean('turboEnabled').notNull().default(true), rating: numeric('rating', { precision: 3, scale: 2 }).notNull().default('5.00'),
-  acceptanceRate: integer('acceptanceRate').notNull().default(100), completionRate: integer('completionRate').notNull().default(100),
-  emergencyContact: text('emergencyContact'), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+  id: serial('id').primaryKey(), userId: text('userId').notNull().unique(), phone: text('phone'), nationalId: text('nationalId'), birthDate: text('birthDate'), address: text('address'), city: text('city').default('Jakarta'),
+  verificationStatus: text('verificationStatus').notNull().default('draft'), rejectionReason: text('rejectionReason'), isOnline: boolean('isOnline').notNull().default(false), turboEnabled: boolean('turboEnabled').notNull().default(true),
+  rating: numeric('rating', { precision: 3, scale: 2 }).notNull().default('5.00'), acceptanceRate: integer('acceptanceRate').notNull().default(100), completionRate: integer('completionRate').notNull().default(100),
+  emergencyContact: text('emergencyContact'), emergencyPhone: text('emergencyPhone'), submittedAt: timestamp('submittedAt'), reviewedAt: timestamp('reviewedAt'),
+  createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 })
 export const vehicles = pgTable('vehicles', {
-  id: serial('id').primaryKey(), userId: text('userId').notNull(), type: text('type').notNull().default('motorcycle'),
-  brand: text('brand'), model: text('model'), plateNumber: text('plateNumber'), color: text('color'), year: integer('year'), createdAt: timestamp('createdAt').notNull().defaultNow(),
+  id: serial('id').primaryKey(), userId: text('userId').notNull(), type: text('type').notNull().default('motorcycle'), brand: text('brand'), model: text('model'), plateNumber: text('plateNumber'), color: text('color'), year: integer('year'),
+  createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 })
+export const bankAccounts = pgTable('bank_accounts', {
+  id: serial('id').primaryKey(), userId: text('userId').notNull().unique(), bankName: text('bankName').notNull(), accountNumber: text('accountNumber').notNull(), accountHolder: text('accountHolder').notNull(),
+  createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+})
+export const driverDocuments = pgTable('driver_documents', {
+  id: serial('id').primaryKey(), userId: text('userId').notNull(), type: text('type').notNull(), pathname: text('pathname').notNull(), originalName: text('originalName').notNull(), contentType: text('contentType').notNull(), size: integer('size').notNull(),
+  status: text('status').notNull().default('pending'), reviewNote: text('reviewNote'), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+}, (table) => [unique('driver_document_user_type').on(table.userId, table.type)])
 export const driverLocations = pgTable('driver_locations', {
-  id: serial('id').primaryKey(), userId: text('userId').notNull().unique(), latitude: numeric('latitude', { precision: 10, scale: 7 }).notNull(),
-  longitude: numeric('longitude', { precision: 10, scale: 7 }).notNull(), heading: numeric('heading', { precision: 6, scale: 2 }),
-  accuracy: numeric('accuracy', { precision: 8, scale: 2 }), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+  id: serial('id').primaryKey(), userId: text('userId').notNull().unique(), latitude: numeric('latitude', { precision: 10, scale: 7 }).notNull(), longitude: numeric('longitude', { precision: 10, scale: 7 }).notNull(),
+  heading: numeric('heading', { precision: 6, scale: 2 }), accuracy: numeric('accuracy', { precision: 8, scale: 2 }), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 })
 export const orders = pgTable('orders', {
   id: serial('id').primaryKey(), userId: text('userId').notNull(), serviceType: text('serviceType').notNull().default('ride'), status: text('status').notNull().default('offered'),
@@ -46,5 +51,9 @@ export const orders = pgTable('orders', {
   paymentMethod: text('paymentMethod').notNull().default('cash'), offeredAt: timestamp('offeredAt').notNull().defaultNow(), acceptedAt: timestamp('acceptedAt'), pickedUpAt: timestamp('pickedUpAt'), completedAt: timestamp('completedAt'), cancelledAt: timestamp('cancelledAt'), createdAt: timestamp('createdAt').notNull().defaultNow(),
 })
 export const earnings = pgTable('earnings', { id: serial('id').primaryKey(), userId: text('userId').notNull(), orderId: integer('orderId'), type: text('type').notNull().default('trip'), amount: integer('amount').notNull(), description: text('description'), createdAt: timestamp('createdAt').notNull().defaultNow() })
+export const withdrawals = pgTable('withdrawals', { id: serial('id').primaryKey(), userId: text('userId').notNull(), amount: integer('amount').notNull(), method: text('method').notNull(), status: text('status').notNull().default('pending'), reviewNote: text('reviewNote'), createdAt: timestamp('createdAt').notNull().defaultNow(), reviewedAt: timestamp('reviewedAt') })
 export const notifications = pgTable('notifications', { id: serial('id').primaryKey(), userId: text('userId').notNull(), title: text('title').notNull(), body: text('body').notNull(), type: text('type').notNull().default('system'), isRead: boolean('isRead').notNull().default(false), createdAt: timestamp('createdAt').notNull().defaultNow() })
 export const achievements = pgTable('achievements', { id: serial('id').primaryKey(), userId: text('userId').notNull(), code: text('code').notNull(), title: text('title').notNull(), description: text('description'), progress: integer('progress').notNull().default(0), target: integer('target').notNull().default(1), unlockedAt: timestamp('unlockedAt'), createdAt: timestamp('createdAt').notNull().defaultNow() })
+export const appSettings = pgTable('app_settings', { key: text('key').primaryKey(), value: text('value').notNull(), updatedBy: text('updatedBy'), updatedAt: timestamp('updatedAt').notNull().defaultNow() })
+export const whatsappLogs = pgTable('whatsapp_logs', { id: serial('id').primaryKey(), event: text('event').notNull(), userId: text('userId'), target: text('target'), status: text('status').notNull().default('pending'), message: text('message').notNull(), response: text('response'), attempts: integer('attempts').notNull().default(0), lastError: text('lastError'), createdAt: timestamp('createdAt').notNull().defaultNow(), sentAt: timestamp('sentAt') })
+export const auditLogs = pgTable('audit_logs', { id: serial('id').primaryKey(), actorId: text('actorId').notNull(), action: text('action').notNull(), entityType: text('entityType').notNull(), entityId: text('entityId'), metadata: text('metadata'), createdAt: timestamp('createdAt').notNull().defaultNow() })

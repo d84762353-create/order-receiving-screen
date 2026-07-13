@@ -2,7 +2,8 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { achievements, driverLocations, driverProfiles, earnings, notifications, orders, vehicles } from '@/lib/db/schema'
+import { achievements, bankAccounts, driverDocuments, driverLocations, driverProfiles, earnings, notifications, orders, vehicles } from '@/lib/db/schema'
+import { sendWhatsApp } from '@/lib/fonnte'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
@@ -21,23 +22,30 @@ export async function getDashboardData() {
   const inbox = await db.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt)).limit(20)
   const goals = await db.select().from(achievements).where(eq(achievements.userId, userId)).orderBy(desc(achievements.createdAt))
   const [vehicle] = await db.select().from(vehicles).where(eq(vehicles.userId, userId)).limit(1)
-  return { profile: profile ?? null, orders: orderList, earnings: earningList, notifications: inbox, achievements: goals, vehicle: vehicle ?? null }
+  const documents = await db.select().from(driverDocuments).where(eq(driverDocuments.userId, userId)).orderBy(desc(driverDocuments.createdAt))
+  return { profile: profile ?? null, orders: orderList, earnings: earningList, notifications: inbox, achievements: goals, vehicle: vehicle ?? null, documents }
 }
 
-export async function createDriverProfile(data: { phone: string; city: string; brand: string; model: string; plateNumber: string; emergencyContact: string }) {
+export async function createDriverProfile(data: {
+  phone: string; nationalId?: string; birthDate?: string; address?: string; city: string; brand: string; model: string; plateNumber: string;
+  vehicleColor?: string; vehicleYear?: number; emergencyContact: string; emergencyPhone?: string; bankName?: string; accountNumber?: string; accountHolder?: string
+}) {
   const userId = await getUserId()
-  await db.insert(driverProfiles).values({ userId, phone: data.phone, city: data.city, emergencyContact: data.emergencyContact }).onConflictDoNothing()
-  await db.insert(vehicles).values({ userId, brand: data.brand, model: data.model, plateNumber: data.plateNumber, type: 'motorcycle' })
-  await db.insert(notifications).values({ userId, title: 'Pendaftaran diterima', body: 'Dokumen Anda sedang diperiksa. Mode demo operasional telah diaktifkan.', type: 'verification' })
-  await db.insert(achievements).values([
-    { userId, code: 'first-trip', title: 'Perjalanan pertama', description: 'Selesaikan order pertama Anda', target: 1 },
-    { userId, code: 'five-trips', title: 'Mitra aktif', description: 'Selesaikan 5 perjalanan', target: 5 },
-  ])
-  await db.insert(earnings).values([
-    { userId, amount: 100000, description: 'Saldo Awal Dompet Tunai', type: 'trip' },
-    { userId, amount: 50000, description: 'Saldo Awal Dompet Kredit', type: 'credit' }
-  ])
-  await db.insert(orders).values({ userId, serviceType: 'ride', status: 'offered', pickupAddress: 'Stasiun MRT Blok M', pickupLatitude: '-6.2443280', pickupLongitude: '106.7989120', dropoffAddress: 'Senayan City', dropoffLatitude: '-6.2270360', dropoffLongitude: '106.7975710', customerName: 'Dina', fare: 28500, distanceKm: '4.80', durationMinutes: 18, paymentMethod: 'cash' })
+  const documents = await db.select().from(driverDocuments).where(eq(driverDocuments.userId, userId))
+  const required = ['selfie', 'ktp', 'sim', 'stnk', 'vehicle', 'bank_book']
+  const missing = required.filter(type => !documents.some(document => document.type === type))
+  if (missing.length) throw new Error(`Dokumen belum lengkap: ${missing.join(', ')}`)
+
+  await db.insert(driverProfiles).values({
+    userId, phone: data.phone, nationalId: data.nationalId, birthDate: data.birthDate, address: data.address, city: data.city,
+    emergencyContact: data.emergencyContact, emergencyPhone: data.emergencyPhone, verificationStatus: 'pending', submittedAt: new Date(), updatedAt: new Date()
+  }).onConflictDoUpdate({ target: driverProfiles.userId, set: { phone: data.phone, nationalId: data.nationalId, birthDate: data.birthDate, address: data.address, city: data.city, emergencyContact: data.emergencyContact, emergencyPhone: data.emergencyPhone, verificationStatus: 'pending', submittedAt: new Date(), updatedAt: new Date() } })
+  const [existingVehicle] = await db.select().from(vehicles).where(eq(vehicles.userId, userId)).limit(1)
+  if (existingVehicle) await db.update(vehicles).set({ brand: data.brand, model: data.model, plateNumber: data.plateNumber, color: data.vehicleColor, year: data.vehicleYear, updatedAt: new Date() }).where(and(eq(vehicles.id, existingVehicle.id), eq(vehicles.userId, userId)))
+  else await db.insert(vehicles).values({ userId, brand: data.brand, model: data.model, plateNumber: data.plateNumber, color: data.vehicleColor, year: data.vehicleYear, type: 'motorcycle' })
+  if (data.bankName && data.accountNumber && data.accountHolder) await db.insert(bankAccounts).values({ userId, bankName: data.bankName, accountNumber: data.accountNumber, accountHolder: data.accountHolder }).onConflictDoUpdate({ target: bankAccounts.userId, set: { bankName: data.bankName, accountNumber: data.accountNumber, accountHolder: data.accountHolder, updatedAt: new Date() } })
+  await db.insert(notifications).values({ userId, title: 'Pendaftaran diterima', body: 'Data dan enam dokumen Anda telah diterima dan sedang diverifikasi admin.', type: 'verification' })
+  await sendWhatsApp('registration_submitted', `PENDAFTARAN DRIVER BARU\nUser ID: ${userId}\nTelepon: ${data.phone}\nKota: ${data.city}\nKendaraan: ${data.brand} ${data.model}\nPlat: ${data.plateNumber}\nDokumen: lengkap (6/6)`, userId)
   revalidatePath('/')
 }
 

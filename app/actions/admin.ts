@@ -1,20 +1,18 @@
-﻿'use server'
+'use server'
 
-import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { achievements, driverLocations, driverProfiles, earnings, notifications, orders, user, vehicles } from '@/lib/db/schema'
+import { achievements, appSettings, auditLogs, driverDocuments, driverLocations, driverProfiles, earnings, notifications, orders, user, vehicles, whatsappLogs } from '@/lib/db/schema'
 import { and, desc, eq, sql } from 'drizzle-orm'
-import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
+import { requireAdmin } from '@/lib/access'
+import { sendWhatsApp } from '@/lib/fonnte'
 
-async function getUserId() {
-  const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) throw new Error('Unauthorized')
-  return session.user.id
+async function getAdminId() {
+  return (await requireAdmin()).id
 }
 
 export async function getAdminDashboardData() {
-  await getUserId()
+  await getAdminId()
 
   // Fetch profiles joined with users
   const driversList = await db.select({
@@ -41,19 +39,24 @@ export async function getAdminDashboardData() {
   // Fetch all orders
   const ordersList = await db.select().from(orders).orderBy(desc(orders.createdAt))
 
-  // Fetch all transactions
   const earningsList = await db.select().from(earnings).orderBy(desc(earnings.createdAt))
+  const documentsList = await db.select().from(driverDocuments).orderBy(desc(driverDocuments.createdAt))
+  const whatsappList = await db.select().from(whatsappLogs).orderBy(desc(whatsappLogs.createdAt)).limit(100)
+  const [targetSetting] = await db.select().from(appSettings).where(eq(appSettings.key, 'fonnte_target')).limit(1)
 
   return {
     drivers: driversList,
     vehicles: vehiclesList,
     orders: ordersList,
-    earnings: earningsList
+    earnings: earningsList,
+    documents: documentsList,
+    whatsappLogs: whatsappList,
+    fonnteTarget: targetSetting?.value || process.env.FONNTE_TARGET || ''
   }
 }
 
 export async function updateDriverVerification(profileId: number, status: 'approved' | 'pending' | 'suspended') {
-  await getUserId()
+  await getAdminId()
   const [profile] = await db.update(driverProfiles).set({ verificationStatus: status }).where(eq(driverProfiles.id, profileId)).returning()
   
   if (profile) {
@@ -83,7 +86,7 @@ export async function dispatchCustomOrder(data: {
   paymentMethod: string
   serviceType: string
 }) {
-  await getUserId()
+  await getAdminId()
   
   // Cancel any active orders for this user first
   await db.update(orders)
@@ -114,7 +117,7 @@ export async function dispatchCustomOrder(data: {
 }
 
 export async function updateOrderState(orderId: number, status: string) {
-  await getUserId()
+  await getAdminId()
   
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1)
   if (!order) throw new Error('Order tidak ditemukan')
@@ -145,8 +148,25 @@ export async function updateOrderState(orderId: number, status: string) {
   revalidatePath('/')
 }
 
+export async function saveFonnteTarget(target: string) {
+  const adminId = await getAdminId()
+  if (!/^\d+@g\.us$/.test(target)) throw new Error('ID grup tidak valid')
+  await db.insert(appSettings).values({ key: 'fonnte_target', value: target, updatedBy: adminId })
+    .onConflictDoUpdate({ target: appSettings.key, set: { value: target, updatedBy: adminId, updatedAt: new Date() } })
+  await db.insert(auditLogs).values({ actorId: adminId, action: 'update_fonnte_target', entityType: 'setting', entityId: 'fonnte_target', metadata: JSON.stringify({ target }) })
+  await sendWhatsApp('configuration_test', 'GRAB DRIVER: Grup ini berhasil dipilih sebagai tujuan notifikasi operasional.')
+  revalidatePath('/admin')
+}
+
+export async function retryWhatsAppLog(logId: number) {
+  await getAdminId()
+  const [log] = await db.select().from(whatsappLogs).where(eq(whatsappLogs.id, logId)).limit(1)
+  if (!log) throw new Error('Log tidak ditemukan')
+  return sendWhatsApp(log.event, log.message, log.userId || undefined)
+}
+
 export async function resetSystemData() {
-  await getUserId()
+  await getAdminId()
   await db.delete(driverProfiles)
   await db.delete(vehicles)
   await db.delete(driverLocations)

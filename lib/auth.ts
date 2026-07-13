@@ -14,7 +14,7 @@ const trustedOrigins = [
 
 export const auth = betterAuth({
   database: pool,
-  secret: process.env.BETTER_AUTH_SECRET || 'better-auth-secret-key-fallback-for-demo',
+  secret: process.env.BETTER_AUTH_SECRET,
   baseURL,
   trustedOrigins,
   emailAndPassword: { enabled: true, minPasswordLength: 8 },

@@ -4,13 +4,26 @@ import { db } from './db'
 import { eq } from 'drizzle-orm'
 import * as schema from './db/schema'
 
-const baseURL = process.env.BETTER_AUTH_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : process.env.V0_RUNTIME_URL)
+function cleanUrl(url: string | undefined): string | undefined {
+  if (!url || url === '[SENSITIVE]' || url.startsWith('[SENSITIVE]')) return undefined
+  return url
+}
+
+const productionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
+  ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+  : process.env.VERCEL_URL
+  ? `https://${process.env.VERCEL_URL}`
+  : undefined
+
+const baseURL = cleanUrl(process.env.BETTER_AUTH_URL) || productionUrl || 'http://localhost:3000'
+
 const trustedOrigins = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   process.env.V0_RUNTIME_URL,
   process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`,
   process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`,
+  baseURL,
 ].filter(Boolean) as string[]
 
 export const auth = betterAuth({
@@ -40,7 +53,6 @@ export const auth = betterAuth({
   }
 })
 
-// Helper to get user role from DB
 export async function getUserRole(userId: string): Promise<string> {
   try {
     const [u] = await db.select({ role: schema.user.role }).from(schema.user).where(eq(schema.user.id, userId)).limit(1)
@@ -50,7 +62,6 @@ export async function getUserRole(userId: string): Promise<string> {
   }
 }
 
-// Helper to set user role
 export async function setUserRole(userId: string, role: string): Promise<void> {
   await db.update(schema.user).set({ role }).where(eq(schema.user.id, userId))
 }

@@ -5,8 +5,10 @@ import * as schema from './schema'
 const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL
 
 if (!connectionString) {
-  console.warn('[DB] No DATABASE_URL set. Set it for persistent storage.')
-  throw new Error('DATABASE_URL environment variable is required')
+  throw new Error(
+    'DATABASE_URL environment variable is required. ' +
+    'Set it in your .env file or Vercel environment variables.'
+  )
 }
 
 console.log('[DB] Connecting to PostgreSQL...')

@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { authClient } from '@/lib/auth-client'
-import { ArrowRight, LoaderCircle, Car, ShieldCheck } from 'lucide-react'
+import { ArrowRight, LoaderCircle, ShieldCheck } from 'lucide-react'
 
 export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const router = useRouter()

@@ -31,7 +31,13 @@ export const auth = betterAuth({
       verification: schema.verification
     }
   }),
-  secret: process.env.BETTER_AUTH_SECRET || 'better-auth-secret-key-fallback-for-demo',
+  secret: process.env.BETTER_AUTH_SECRET || (() => {
+    if (process.env.VERCEL_ENV === 'production') {
+      throw new Error('BETTER_AUTH_SECRET environment variable is required in production')
+    }
+    const { randomBytes } = require('crypto')
+    return randomBytes(32).toString('hex')
+  })(),
   baseURL,
   trustedOrigins,
   emailAndPassword: { enabled: true, minPasswordLength: 8 },

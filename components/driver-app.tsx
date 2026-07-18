@@ -75,7 +75,8 @@ import {
   ImagePlus,
   Trash2,
   CheckCircle2,
-  Eye
+  Eye,
+  Diamond
 } from 'lucide-react'
 
 interface DriverProfile {
@@ -399,7 +400,7 @@ export function DriverApp({ data, user }: { data: Data; user: { name: string; em
       }
     })
 
-  if (!data.profile) return <Onboarding pending={pending} run={(a) => run(a)} />
+  if (!data.profile) return <Onboarding pending={pending} run={(a) => run(a)} userName={user.name} />
 
   if (data.profile.verificationStatus === 'pending') {
     return <PendingVerification pending={pending} run={(a) => run(a)} />
@@ -635,7 +636,7 @@ function HomeView({
             {p.isOnline && (
               <span className="text-[10px] text-primary font-bold flex items-center gap-1 mt-0.5">
                 <span className="size-1.5 rounded-full bg-primary animate-ping" />
-                💎 {diamonds} Berlian hari ini
+                <Diamond className="size-3 fill-primary text-primary" /> {diamonds} Berlian hari ini
               </span>
             )}
           </div>
@@ -2255,7 +2256,7 @@ function TargetsDrawer({
           <div className="flex justify-between items-start">
             <h3 className="text-xs font-black uppercase text-muted-foreground tracking-wider">Target Harian</h3>
             <span className="text-xs font-bold text-primary flex items-center gap-1">
-              💎 {diamonds} Berlian
+              <Diamond className="size-3 fill-amber-400 text-amber-400" /> {diamonds} Berlian
             </span>
           </div>
           <div className="flex justify-between items-end mt-3">
@@ -2393,7 +2394,7 @@ function ServicesDrawer({
 /* ==========================================================================
    COMPONENT: ONBOARDING VIEW
    ========================================================================== */
-function Onboarding({ pending, run }: { pending: boolean; run: (action: () => Promise<void>) => void }) {
+function Onboarding({ pending, run, userName }: { pending: boolean; run: (action: () => Promise<void>) => void; userName?: string }) {
   const [step, setStep] = useState(1)
   const [formData, setFormData] = useState({
     phone: '', city: '', emergencyContact: '', address: '',
@@ -2556,12 +2557,12 @@ function Onboarding({ pending, run }: { pending: boolean; run: (action: () => Pr
         {/* Step Title Card */}
         <div className="bg-white rounded-2xl px-5 py-4 border border-slate-100 shadow-xs">
           <h2 className="text-sm font-extrabold text-slate-800">
-            {step === 1 && '👤 Lengkapi Informasi Data Diri'}
-            {step === 2 && '🏍️ Lengkapi Informasi Kendaraan'}
-            {step === 3 && '📄 Data Dokumen Legal Kemitraan'}
-            {step === 4 && '📸 Unggah Foto Dokumen & Selfie'}
-            {step === 5 && '🏦 Rekening Pencairan Pendapatan'}
-            {step === 6 && '✅ Konfirmasi Akhir & Verifikasi'}
+            {step === 1 && <><UserRound className="size-4" /> Lengkapi Informasi Data Diri</>}
+            {step === 2 && <><Bike className="size-4" /> Lengkapi Informasi Kendaraan</>}
+            {step === 3 && <><FileText className="size-4" /> Data Dokumen Legal Kemitraan</>}
+            {step === 4 && <><Camera className="size-4" /> Unggah Foto Dokumen & Selfie</>}
+            {step === 5 && <><CreditCard className="size-4" /> Rekening Pencairan Pendapatan</>}
+            {step === 6 && <><CheckCircle2 className="size-4" /> Konfirmasi Akhir & Verifikasi</>}
           </h2>
           <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
             {step === 1 && 'Pastikan data diri Anda sesuai dengan KTP asli yang masih berlaku. Data ini digunakan untuk validasi identitas kemitraan.'}
@@ -2578,7 +2579,7 @@ function Onboarding({ pending, run }: { pending: boolean; run: (action: () => Pr
           <form onSubmit={step === 6 ? (e) => { e.preventDefault(); submitFinal(); } : handleNext} className="flex flex-col gap-4 flex-1">
             {step === 1 && (
               <div className="flex flex-col gap-3.5">
-                <Input label="Nama Lengkap (Sesuai KTP)" value={formData.address ? '' : ''} onChange={() => {}} icon={UserRound} placeholder="Otomatis dari data akun" disabled />
+                <Input label="Nama Lengkap (Sesuai KTP)" value={userName || ''} onChange={() => {}} icon={UserRound} placeholder="Otomatis dari data akun" disabled />
                 <Input label="Nomor Telepon Seluler" value={formData.phone} onChange={v => setFormData({ ...formData, phone: v })} icon={Phone} placeholder="Contoh: 081234567890" />
                 <Input label="Kota Operasional" value={formData.city} onChange={v => setFormData({ ...formData, city: v })} icon={MapPin} placeholder="Contoh: Jakarta Selatan" />
                 <Input label="Alamat Lengkap (Sesuai KTP)" value={formData.address} onChange={v => setFormData({ ...formData, address: v })} icon={Home} placeholder="Jl., RT/RW, Kel., Kec., Kota" multiline />

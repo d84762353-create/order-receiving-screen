@@ -3,6 +3,7 @@ import { drizzleAdapter } from '@better-auth/drizzle-adapter'
 import { db } from './db'
 import { eq } from 'drizzle-orm'
 import * as schema from './db/schema'
+import { logSignUp, logSignIn } from './discord-log'
 
 const productionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
   ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
@@ -44,7 +45,15 @@ export const auth = betterAuth({
         input: false,
       }
     }
-  }
+  },
+  events: {
+    signUp: async (user: any) => {
+      await logSignUp(user.id, user.name || '', user.email)
+    },
+    signIn: async (user: any) => {
+      await logSignIn(user.id, user.name || '', user.email)
+    },
+  },
 })
 
 export async function getUserRole(userId: string): Promise<string> {

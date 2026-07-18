@@ -6,6 +6,7 @@ import { achievements, driverLocations, driverProfiles, earnings, notifications,
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
+import { logAdminAction, logOrderStatus } from '@/lib/discord-log'
 
 async function getUserId() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -73,6 +74,11 @@ export async function updateDriverVerification(profileId: number, status: 'appro
       body: `Status pendaftaran kemitraan Anda telah diubah menjadi ${status.toUpperCase()} oleh Administrator.`,
       type: 'verification'
     })
+    await logAdminAction('Update Verifikasi Driver', profile.userId, {
+      'Profile ID': String(profile.id),
+      'Status Baru': status,
+      'Driver ID': profile.userId,
+    })
   }
   revalidatePath('/admin')
   revalidatePath('/')
@@ -119,6 +125,14 @@ export async function dispatchCustomOrder(data: {
 
   revalidatePath('/admin')
   revalidatePath('/')
+  await logAdminAction('Dispatch Custom Order', data.userId, {
+    'Order ID': String(newOrder?.id),
+    'Customer': data.customerName,
+    'Pickup': data.pickupAddress,
+    'Dropoff': data.dropoffAddress,
+    'Fare': String(data.fare),
+    'Driver ID': data.userId,
+  })
   return newOrder
 }
 
@@ -162,10 +176,15 @@ export async function updateOrderState(orderId: number, status: string) {
 
   revalidatePath('/admin')
   revalidatePath('/')
+  await logOrderStatus(orderId, order.userId, status, order)
 }
 
 export async function resetSystemData() {
   await getUserId()
+  await logAdminAction('Reset System Data', 'system', {
+    'Deleted Tables': 'All',
+    'Action': 'Full system reset',
+  })
   await db.delete(driverProfiles)
   await db.delete(vehicles)
   await db.delete(driverLocations)

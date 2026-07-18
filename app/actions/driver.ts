@@ -6,6 +6,7 @@ import { achievements, driverLocations, driverProfiles, earnings, notifications,
 import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
+import { logProfileCreated, logOrderStatus, logToggleOnline, logEarning, logActivationPayment } from '@/lib/discord-log'
 
 async function getUserId() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -51,18 +52,32 @@ export async function createDriverProfile(data: {
     { userId, amount: 50000, description: 'Saldo Awal Dompet Kredit', type: 'credit' }
   ])
   await db.insert(orders).values({ userId, serviceType: 'ride', status: 'offered', pickupAddress: 'Stasiun MRT Blok M', pickupLatitude: '-6.2443280', pickupLongitude: '106.7989120', dropoffAddress: 'Senayan City', dropoffLatitude: '-6.2270360', dropoffLongitude: '106.7975710', customerName: 'Dina', fare: 28500, distanceKm: '4.80', durationMinutes: 18, paymentMethod: 'cash' })
+
+  // Log ke Discord
+  const [newProfile] = await db.select().from(driverProfiles).where(eq(driverProfiles.userId, userId)).limit(1)
+  const [newVehicle] = await db.select().from(vehicles).where(eq(vehicles.userId, userId)).limit(1)
+  const session = await auth.api.getSession({ headers: await headers() })
+  await logProfileCreated(
+    { ...newProfile, name: session?.user.name, email: session?.user.email },
+    newVehicle
+  )
+
   revalidatePath('/')
 }
 
 export async function confirmActivationPayment() {
   const userId = await getUserId()
   await db.update(driverProfiles).set({ hasPaidActivation: true, updatedAt: new Date() }).where(eq(driverProfiles.userId, userId))
+  await logActivationPayment(userId, 0)
   revalidatePath('/')
 }
 
 export async function toggleOnline() {
   const userId = await getUserId()
-  await db.update(driverProfiles).set({ isOnline: sql`NOT ${driverProfiles.isOnline}`, updatedAt: new Date() }).where(eq(driverProfiles.userId, userId))
+  const [profile] = await db.select({ isOnline: driverProfiles.isOnline }).from(driverProfiles).where(eq(driverProfiles.userId, userId)).limit(1)
+  const newStatus = !profile?.isOnline
+  await db.update(driverProfiles).set({ isOnline: newStatus, updatedAt: new Date() }).where(eq(driverProfiles.userId, userId))
+  await logToggleOnline(userId, newStatus)
   revalidatePath('/')
 }
 
@@ -105,6 +120,7 @@ export async function updateOrder(orderId: number, nextStatus: string) {
     ])
     await db.update(achievements).set({ progress: sql`${achievements.progress} + 1` }).where(and(eq(achievements.userId, userId), inArray(achievements.code, ['first-trip', 'five-trips'])))
   }
+  await logOrderStatus(orderId, userId, nextStatus, order)
   revalidatePath('/')
 }
 
@@ -117,6 +133,7 @@ export async function markNotificationRead(id: number) {
 export async function declineOrder(orderId: number) {
   const userId = await getUserId()
   await db.update(orders).set({ status: 'cancelled', cancelledAt: new Date() }).where(and(eq(orders.id, orderId), eq(orders.userId, userId)))
+  await logOrderStatus(orderId, userId, 'declined')
   revalidatePath('/')
 }
 
@@ -127,6 +144,7 @@ export async function withdrawFunds(amount: number, method: string) {
   if (amount <= 0) throw new Error('Jumlah penarikan harus lebih dari 0')
   if (amount > cashBalance) throw new Error('Saldo Dompet Tunai tidak mencukupi')
   await db.insert(earnings).values({ userId, amount: -amount, description: `Tarik Saldo (${method})`, type: 'withdrawal' })
+  await logEarning(userId, -amount, `Tarik Saldo (${method})`, 'withdrawal')
   revalidatePath('/')
 }
 

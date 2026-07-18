@@ -1,15 +1,19 @@
-﻿'use server'
+'use server'
 
-import { auth } from '@/lib/auth'
+import { auth, getUserRole } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { achievements, driverLocations, driverProfiles, earnings, notifications, orders, user, vehicles } from '@/lib/db/schema'
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 
 async function getUserId() {
   const session = await auth.api.getSession({ headers: await headers() })
   if (!session?.user) throw new Error('Unauthorized')
+  
+  const role = await getUserRole(session.user.id)
+  if (role !== 'admin') throw new Error('Unauthorized - Admin only')
+  
   return session.user.id
 }
 
@@ -30,6 +34,11 @@ export async function getAdminDashboardData() {
     rating: driverProfiles.rating,
     acceptanceRate: driverProfiles.acceptanceRate,
     completionRate: driverProfiles.completionRate,
+    photoKtp: driverProfiles.photoKtp,
+    photoSim: driverProfiles.photoSim,
+    photoStnk: driverProfiles.photoStnk,
+    photoSelfie: driverProfiles.photoSelfie,
+    photoVehicle: driverProfiles.photoVehicle,
     createdAt: driverProfiles.createdAt
   })
   .from(driverProfiles)
@@ -128,17 +137,27 @@ export async function updateOrderState(orderId: number, status: string) {
   await db.update(orders).set({ status, ...timestamps }).where(eq(orders.id, orderId))
 
   if (status === 'completed') {
-    // Log earnings
-    await db.insert(earnings).values({
-      userId: order.userId,
-      orderId: order.id,
-      amount: order.fare,
-      description: `Admin Override: ${order.pickupAddress} â†’ ${order.dropoffAddress}`
-    })
-    // Increment achievements
+    // Log earnings with commission deduction
+    const commission = Math.round(order.fare * 0.20)
+    await db.insert(earnings).values([
+      {
+        userId: order.userId,
+        orderId: order.id,
+        amount: order.fare,
+        type: 'trip',
+        description: `Admin Override: ${order.pickupAddress} → ${order.dropoffAddress}`
+      },
+      {
+        userId: order.userId,
+        orderId: order.id,
+        amount: -commission,
+        type: 'commission',
+        description: `Komisi Layanan Grab (20%) - Admin Override`
+      }
+    ])
     await db.update(achievements)
       .set({ progress: sql`${achievements.progress} + 1` })
-      .where(and(eq(achievements.userId, order.userId), sql`code IN ('first-trip', 'five-trips')`))
+      .where(and(eq(achievements.userId, order.userId), inArray(achievements.code, ['first-trip', 'five-trips'])))
   }
 
   revalidatePath('/admin')

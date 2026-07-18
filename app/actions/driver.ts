@@ -3,7 +3,7 @@
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
 import { achievements, driverLocations, driverProfiles, earnings, notifications, orders, vehicles } from '@/lib/db/schema'
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 
@@ -24,11 +24,24 @@ export async function getDashboardData() {
   return { profile: profile ?? null, orders: orderList, earnings: earningList, notifications: inbox, achievements: goals, vehicle: vehicle ?? null }
 }
 
-export async function createDriverProfile(data: { phone: string; city: string; brand: string; model: string; plateNumber: string; emergencyContact: string }) {
+export async function createDriverProfile(data: {
+  phone: string; city: string; brand: string; model: string; plateNumber: string;
+  emergencyContact: string; nik: string; simNumber: string; address: string;
+  bankAccount: string; bankName: string; stnkNumber: string; type: string;
+  photoKtp?: string; photoSim?: string; photoStnk?: string; photoSelfie?: string; photoVehicle?: string;
+}) {
   const userId = await getUserId()
-  await db.insert(driverProfiles).values({ userId, phone: data.phone, city: data.city, emergencyContact: data.emergencyContact }).onConflictDoNothing()
-  await db.insert(vehicles).values({ userId, brand: data.brand, model: data.model, plateNumber: data.plateNumber, type: 'motorcycle' })
-  await db.insert(notifications).values({ userId, title: 'Pendaftaran diterima', body: 'Dokumen Anda sedang diperiksa. Mode demo operasional telah diaktifkan.', type: 'verification' })
+  await db.insert(driverProfiles).values({
+    userId, phone: data.phone, city: data.city, emergencyContact: data.emergencyContact,
+    nik: data.nik, simNumber: data.simNumber, address: data.address,
+    bankAccount: data.bankAccount, bankName: data.bankName,
+    photoKtp: data.photoKtp || null, photoSim: data.photoSim || null,
+    photoStnk: data.photoStnk || null, photoSelfie: data.photoSelfie || null,
+    photoVehicle: data.photoVehicle || null,
+    verificationStatus: 'pending', hasVerifiedDocuments: true
+  }).onConflictDoNothing()
+  await db.insert(vehicles).values({ userId, brand: data.brand, model: data.model, plateNumber: data.plateNumber, stnkNumber: data.stnkNumber, type: data.type || 'motorcycle' }).onConflictDoNothing()
+  await db.insert(notifications).values({ userId, title: 'Pendaftaran diterima', body: 'Dokumen Anda sedang diperiksa. Mohon tunggu proses verifikasi 1x24 jam.', type: 'verification' })
   await db.insert(achievements).values([
     { userId, code: 'first-trip', title: 'Perjalanan pertama', description: 'Selesaikan order pertama Anda', target: 1 },
     { userId, code: 'five-trips', title: 'Mitra aktif', description: 'Selesaikan 5 perjalanan', target: 5 },
@@ -53,6 +66,18 @@ export async function toggleTurbo() {
   revalidatePath('/')
 }
 
+export async function toggleQuietRide() {
+  const userId = await getUserId()
+  await db.update(driverProfiles).set({ quietRideEnabled: sql`NOT ${driverProfiles.quietRideEnabled}`, updatedAt: new Date() }).where(eq(driverProfiles.userId, userId))
+  revalidatePath('/')
+}
+
+export async function setDestinationDirection(destinationDirection: string | null) {
+  const userId = await getUserId()
+  await db.update(driverProfiles).set({ destinationDirection, updatedAt: new Date() }).where(eq(driverProfiles.userId, userId))
+  revalidatePath('/')
+}
+
 export async function updateLocation(latitude: number, longitude: number, accuracy?: number) {
   const userId = await getUserId()
   await db.insert(driverLocations).values({ userId, latitude: String(latitude), longitude: String(longitude), accuracy: accuracy ? String(accuracy) : null }).onConflictDoUpdate({ target: driverLocations.userId, set: { latitude: String(latitude), longitude: String(longitude), accuracy: accuracy ? String(accuracy) : null, updatedAt: new Date() } })
@@ -72,7 +97,7 @@ export async function updateOrder(orderId: number, nextStatus: string) {
       { userId, orderId, amount: order.fare, description: `${order.pickupAddress} → ${order.dropoffAddress}`, type: 'trip' },
       { userId, orderId, amount: -commission, description: `Komisi Layanan Grab (20%)`, type: 'commission' }
     ])
-    await db.update(achievements).set({ progress: sql`${achievements.progress} + 1` }).where(and(eq(achievements.userId, userId), sql`code IN ('first-trip', 'five-trips')`))
+    await db.update(achievements).set({ progress: sql`${achievements.progress} + 1` }).where(and(eq(achievements.userId, userId), inArray(achievements.code, ['first-trip', 'five-trips'])))
   }
   revalidatePath('/')
 }
@@ -111,16 +136,16 @@ export async function resetDriverData() {
   revalidatePath('/')
 }
 
-export async function addFakeEarnings() {
+export async function addDailyIncentive() {
   const userId = await getUserId()
   await db.insert(earnings).values([
-    { userId, amount: 50000, description: 'Bonus Simulasi Dev', type: 'trip' },
-    { userId, amount: 20000, description: 'Top Up Kredit Simulasi', type: 'credit' }
+    { userId, amount: 50000, description: 'Insentif Tambahan', type: 'trip' },
+    { userId, amount: 20000, description: 'Top Up Saldo Kredit', type: 'credit' }
   ])
   revalidatePath('/')
 }
 
-export async function simulateNewOrder() {
+export async function assignNewOrder() {
   const userId = await getUserId()
   // Cancel any existing pending or active orders
   await db.update(orders).set({ status: 'cancelled', cancelledAt: new Date() }).where(and(eq(orders.userId, userId), sql`status NOT IN ('completed', 'cancelled')`))

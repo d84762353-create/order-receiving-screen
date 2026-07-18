@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState, useTransition } from 'react'
-import mapboxgl from 'mapbox-gl'
+import dynamic from 'next/dynamic'
+import { useRouter } from 'next/navigation'
 import { authClient } from '@/lib/auth-client'
 import {
   createDriverProfile,
@@ -13,8 +14,10 @@ import {
   declineOrder,
   withdrawFunds,
   resetDriverData,
-  simulateNewOrder,
-  addFakeEarnings
+  assignNewOrder,
+  addDailyIncentive,
+  toggleQuietRide,
+  setDestinationDirection
 } from '@/app/actions/driver'
 import {
   Activity,
@@ -47,7 +50,6 @@ import {
   Send,
   Wrench,
   ShieldAlert,
-  HelpCircle,
   PhoneCall,
   Sparkles,
   LogOut,
@@ -56,18 +58,131 @@ import {
   Package,
   ShoppingBag,
   AlertTriangle,
-  Award,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  Bot,
+  VolumeX,
+  Briefcase,
+  GraduationCap,
+  Map,
+  Compass,
+  FileText,
+  CreditCard,
+  Camera,
+  Gift,
+  Upload,
+  ImagePlus,
+  Trash2,
+  CheckCircle2,
+  Eye
 } from 'lucide-react'
 
+interface DriverProfile {
+  id: number
+  userId: string
+  phone: string | null
+  city: string | null
+  verificationStatus: string
+  isOnline: boolean
+  turboEnabled: boolean
+  rating: string
+  acceptanceRate: number
+  completionRate: number
+  emergencyContact: string | null
+  nik: string | null
+  simNumber: string | null
+  address: string | null
+  bankAccount: string | null
+  bankName: string | null
+  hasVerifiedDocuments: boolean
+  quietRideEnabled: boolean
+  destinationDirection: string | null
+  photoKtp: string | null
+  photoSim: string | null
+  photoStnk: string | null
+  photoSelfie: string | null
+  photoVehicle: string | null
+  createdAt: Date | string
+  updatedAt: Date | string
+}
+
+interface Order {
+  id: number
+  userId: string
+  serviceType: string
+  status: string
+  pickupAddress: string
+  pickupLatitude: string
+  pickupLongitude: string
+  dropoffAddress: string
+  dropoffLatitude: string
+  dropoffLongitude: string
+  customerName: string
+  customerPhone: string | null
+  fare: number
+  distanceKm: string | null
+  durationMinutes: number | null
+  paymentMethod: string
+  offeredAt: Date | string
+  acceptedAt: Date | string | null
+  pickedUpAt: Date | string | null
+  completedAt: Date | string | null
+  cancelledAt: Date | string | null
+  createdAt: Date | string
+}
+
+interface Earning {
+  id: number
+  userId: string
+  orderId: number | null
+  type: string
+  amount: number
+  description: string | null
+  createdAt: Date | string
+}
+
+interface NotificationItem {
+  id: number
+  userId: string
+  title: string
+  body: string
+  type: string
+  isRead: boolean
+  createdAt: Date | string
+}
+
+interface Achievement {
+  id: number
+  userId: string
+  code: string
+  title: string
+  description: string | null
+  progress: number
+  target: number
+  unlockedAt: Date | string | null
+  createdAt: Date | string
+}
+
+interface Vehicle {
+  id: number
+  userId: string
+  type: string
+  brand: string | null
+  model: string | null
+  plateNumber: string | null
+  color: string | null
+  year: number | null
+  stnkNumber: string | null
+  createdAt: Date | string
+}
+
 type Data = {
-  profile: any
-  orders: any[]
-  earnings: any[]
-  notifications: any[]
-  achievements: any[]
-  vehicle: any
+  profile: DriverProfile | null
+  orders: Order[]
+  earnings: Earning[]
+  notifications: NotificationItem[]
+  achievements: Achievement[]
+  vehicle: Vehicle | null
 }
 
 type Tab = 'home' | 'activity' | 'earnings' | 'inbox' | 'profile'
@@ -78,7 +193,7 @@ const rupiah = (value: number) =>
     style: 'currency',
     currency: 'IDR',
     maximumFractionDigits: 0
-  }).format(value)
+  }).format(Number(value) || 0)
 
 // Shared Audio Context to bypass mobile autoplay restrictions after first interaction
 let globalAudioContext: AudioContext | null = null
@@ -177,22 +292,20 @@ const playChatPing = () => {
   }
 }
 
-// Calculate angle between coordinates for dynamically rotating map marker
-const calculateBearing = (startLat: number, startLng: number, endLat: number, endLng: number) => {
-  const dLng = (endLng - startLng) * (Math.PI / 180)
-  const lat1 = startLat * (Math.PI / 180)
-  const lat2 = endLat * (Math.PI / 180)
-  const y = Math.sin(dLng) * Math.cos(lat2)
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
-  const brng = Math.atan2(y, x) * (180 / Math.PI)
-  return (brng + 360) % 360
-}
+const MapView = dynamic(() => import('@/components/map-view'), {
+  ssr: false,
+  loading: () => (
+    <div className="relative h-80 w-full overflow-hidden bg-muted flex items-center justify-center text-xs font-semibold text-muted-foreground">
+      Memuat peta...
+    </div>
+  )
+})
 
 export function DriverApp({ data, user }: { data: Data; user: { name: string; email: string } }) {
   const [tab, setTab] = useState<Tab>('home')
   const [pending, startTransition] = useTransition()
   const [devOpen, setDevOpen] = useState(false)
-  const [activeDrawer, setActiveDrawer] = useState<'chat' | 'phone' | 'safety' | 'withdrawal' | 'targets' | 'services' | null>(null)
+  const [activeDrawer, setActiveDrawer] = useState<'chat' | 'phone' | 'safety' | 'withdrawal' | 'targets' | 'services' | 'coach' | 'destination' | null>(null)
   
   // Custom operational states
   const [chatMessages, setChatMessages] = useState<Message[]>([])
@@ -253,17 +366,19 @@ export function DriverApp({ data, user }: { data: Data; user: { name: string; em
     } else if (!currentOrder) {
       setChatMessages([])
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentOrder])
 
   // Auto accept order when Turbo mode is active
   useEffect(() => {
-    if (currentOrder && currentOrder.status === 'offered' && data.profile.turboEnabled) {
+    if (currentOrder && currentOrder.status === 'offered' && data.profile?.turboEnabled) {
       const timeout = setTimeout(() => {
         run(() => updateOrder(currentOrder.id, 'accepted'), 'accepted', currentOrder)
       }, 1500)
       return () => clearTimeout(timeout)
     }
-  }, [currentOrder?.id, currentOrder?.status, data.profile.turboEnabled])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOrder?.id, currentOrder?.status, data.profile?.turboEnabled])
 
   // Custom runner to trigger play sounds and receipts on state changes
   const run = (action: () => Promise<void>, nextStatus?: string, orderDetails?: any) =>
@@ -283,16 +398,16 @@ export function DriverApp({ data, user }: { data: Data; user: { name: string; em
 
   if (!data.profile) return <Onboarding pending={pending} run={(a) => run(a)} />
 
+  if (data.profile.verificationStatus === 'pending') {
+    return <PendingVerification pending={pending} run={(a) => run(a)} />
+  }
+
+  if (data.profile.verificationStatus === 'suspended') {
+    return <SuspendedAccount />
+  }
+
   return (
     <main className="relative mx-auto flex min-h-dvh w-full max-w-md flex-col overflow-hidden bg-background shadow-2xl">
-      {/* Top Floating Developer Panel Trigger */}
-      <button
-        onClick={() => setDevOpen(true)}
-        className="fixed right-4 top-4 z-50 flex size-10 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-lg transition-transform hover:scale-105 active:scale-95 animate-pulse"
-        title="Developer Simulation Tools"
-      >
-        <Wrench className="size-5" />
-      </button>
 
       {/* Main Content Area */}
       <div className="relative flex-1 overflow-y-auto pb-24">
@@ -339,7 +454,7 @@ export function DriverApp({ data, user }: { data: Data; user: { name: string; em
           { id: 'home', label: 'Beranda', icon: Home },
           { id: 'activity', label: 'Aktivitas', icon: History },
           { id: 'earnings', label: 'Pendapatan', icon: Wallet },
-          { id: 'inbox', label: 'Inbox', icon: Inbox },
+          { id: 'inbox', label: 'Kotak Masuk', icon: Inbox },
           { id: 'profile', label: 'Profil', icon: UserRound }
         ] as const).map(({ id, label, icon: Icon }) => (
           <button
@@ -361,14 +476,15 @@ export function DriverApp({ data, user }: { data: Data; user: { name: string; em
         ))}
       </nav>
 
-      {/* Developer / Simulation Panel Drawer */}
-      <DevPanel
-        open={devOpen}
-        onClose={() => setDevOpen(false)}
-        order={currentOrder}
-        run={run}
-        pending={pending}
-      />
+      {/* Call Drawer */}
+      {currentOrder && (
+        <PhoneDrawer
+          open={activeDrawer === 'phone'}
+          onClose={() => setActiveDrawer(null)}
+          customerName={currentOrder.customerName}
+          customerPhone={currentOrder.customerPhone || '0812-3456-7890'}
+        />
+      )}
 
       {/* Chat Drawer */}
       {currentOrder && (
@@ -378,16 +494,6 @@ export function DriverApp({ data, user }: { data: Data; user: { name: string; em
           messages={chatMessages}
           setMessages={setChatMessages}
           customerName={currentOrder.customerName}
-        />
-      )}
-
-      {/* Phone Call Drawer */}
-      {currentOrder && (
-        <PhoneDrawer
-          open={activeDrawer === 'phone'}
-          onClose={() => setActiveDrawer(null)}
-          customerName={currentOrder.customerName}
-          customerPhone={currentOrder.customerPhone || '0812-3456-7890'}
         />
       )}
 
@@ -420,6 +526,21 @@ export function DriverApp({ data, user }: { data: Data; user: { name: string; em
         setToggles={setServiceToggles}
       />
 
+      {/* Destination Direction Drawer */}
+      <DestinationDrawer
+        open={activeDrawer === 'destination'}
+        onClose={() => setActiveDrawer(null)}
+        profile={data.profile}
+        run={run}
+        pending={pending}
+      />
+
+      {/* Coach AI Drawer */}
+      <CoachDrawer
+        open={activeDrawer === 'coach'}
+        onClose={() => setActiveDrawer(null)}
+      />
+
       {/* Interactive Completed Order Receipt Modal */}
       {receiptOrder && (
         <ReceiptModal order={receiptOrder} onClose={() => setReceiptOrder(null)} />
@@ -428,355 +549,9 @@ export function DriverApp({ data, user }: { data: Data; user: { name: string; em
   )
 }
 
-/* ==========================================================================
-   COMPONENT: MAP VIEW WITH MAPBOX HEATMAP ZONE OVERLAYS & ROTATING MOTOR MARKER
-   ========================================================================== */
-function MapView({ order }: { order?: any }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const map = useRef<mapboxgl.Map | null>(null)
-  const driverMarker = useRef<mapboxgl.Marker | null>(null)
-  const pickupMarker = useRef<mapboxgl.Marker | null>(null)
-  const dropoffMarker = useRef<mapboxgl.Marker | null>(null)
-  const currentStepInterval = useRef<NodeJS.Timeout | null>(null)
-  
-  const [gps, setGps] = useState('Menginisialisasi peta...')
 
-  // Initialize Map
-  useEffect(() => {
-    if (!ref.current || map.current) return
-    mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || ''
-    
-    // Jakarta Central Fallback Coordinates
-    const defaultCenter: [number, number] = [106.8227, -6.2023]
 
-    try {
-      map.current = new mapboxgl.Map({
-        container: ref.current,
-        style: 'mapbox://styles/mapbox/streets-v12',
-        center: defaultCenter,
-        zoom: 13,
-        attributionControl: false
-      })
 
-      map.current.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-left')
-      setGps('GPS Online')
-
-      // Create Driver Pin (Motorcycle direction pointer element)
-      const pinEl = document.createElement('div')
-      pinEl.className = 'relative flex items-center justify-center'
-      pinEl.innerHTML = `
-        <div class="absolute size-9 rounded-full bg-blue-500/20 border border-blue-500/40 animate-ping"></div>
-        <div class="z-10 flex size-7 items-center justify-center rounded-full bg-blue-600 text-white shadow shadow-blue-500/50 border border-blue-400">
-          <svg class="size-4" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0L5 12m7-7l7 7"/>
-          </svg>
-        </div>
-      `
-
-      driverMarker.current = new mapboxgl.Marker({ element: pinEl })
-        .setLngLat(defaultCenter)
-        .addTo(map.current)
-
-      // Add Pulsing Red Heatmap Markers (Surge Zones)
-      const surgePoints = [
-        { coords: [106.8202960, -6.1953250], rate: '1.8x' }, // Grand Indonesia
-        { coords: [106.8097720, -6.2246730], rate: '1.5x' }, // Pacific Place
-        { coords: [106.7989120, -6.2443280], rate: '1.3x' }  // Blok M
-      ]
-
-      surgePoints.forEach((p) => {
-        const el = document.createElement('div')
-        el.className = 'relative flex items-center justify-center'
-        el.innerHTML = `
-          <div class="absolute size-14 rounded-full bg-red-500/20 border border-red-500/40 animate-ping duration-1000"></div>
-          <div class="absolute size-8 rounded-full bg-red-600/40 border border-red-600/60"></div>
-          <div class="z-10 bg-red-600 text-white font-extrabold text-[8px] px-1 py-0.5 rounded shadow-sm border border-red-700">${p.rate}</div>
-        `
-        new mapboxgl.Marker({ element: el })
-          .setLngLat(p.coords as [number, number])
-          .addTo(map.current!)
-      })
-
-      // Try actual location if granted
-      navigator.geolocation?.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude, accuracy } = position.coords
-          setGps('Lokasi Akurat')
-          map.current?.flyTo({ center: [longitude, latitude], zoom: 15 })
-          driverMarker.current?.setLngLat([longitude, latitude])
-          updateLocation(latitude, longitude, accuracy)
-        },
-        () => setGps('GPS Mode Demo')
-      )
-    } catch (e) {
-      setGps('Error Peta Mapbox')
-    }
-
-    return () => {
-      map.current?.remove()
-      map.current = null
-    }
-  }, [])
-
-  // Animate Marker based on Order Status Transitions with dynamically computed rotation heading
-  useEffect(() => {
-    if (!map.current || !driverMarker.current) return
-
-    // Clean up previous animations
-    if (currentStepInterval.current) {
-      clearInterval(currentStepInterval.current)
-    }
-
-    if (order) {
-      const pLng = Number(order.pickupLongitude)
-      const pLat = Number(order.pickupLatitude)
-      const dLng = Number(order.dropoffLongitude)
-      const dLat = Number(order.dropoffLatitude)
-
-      // Plot/Update Pickup Marker (Green)
-      if (!pickupMarker.current) {
-        pickupMarker.current = new mapboxgl.Marker({ color: '#00b14f' })
-          .setLngLat([pLng, pLat])
-          .addTo(map.current)
-      } else {
-        pickupMarker.current.setLngLat([pLng, pLat])
-      }
-
-      // Plot/Update Dropoff Marker (Dark Green / Black)
-      if (!dropoffMarker.current) {
-        dropoffMarker.current = new mapboxgl.Marker({ color: '#172b24' })
-          .setLngLat([dLng, dLat])
-          .addTo(map.current)
-      } else {
-        dropoffMarker.current.setLngLat([dLng, dLat])
-      }
-
-      // Simulation Movement Easing and Rotation Heading Pointer via Mapbox Directions API
-      const animateMarker = async (startCoords: [number, number], endCoords: [number, number]) => {
-        let routeCoords: [number, number][] = []
-        try {
-          const res = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${startCoords[0]},${startCoords[1]};${endCoords[0]},${endCoords[1]}?geometries=geojson&access_token=${mapboxgl.accessToken}`)
-          const data = await res.json()
-          if (data.routes && data.routes[0]) {
-            routeCoords = data.routes[0].geometry.coordinates
-            
-            // Draw route on map
-            if (map.current?.getSource('route')) {
-              (map.current.getSource('route') as mapboxgl.GeoJSONSource).setData(data.routes[0].geometry)
-            } else {
-              map.current?.addSource('route', {
-                type: 'geojson',
-                data: data.routes[0].geometry
-              })
-              map.current?.addLayer({
-                id: 'route',
-                type: 'line',
-                source: 'route',
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-color': '#00b14f', 'line-width': 5, 'line-opacity': 0.8 }
-              }, 'waterway-label')
-            }
-          }
-        } catch (err) {
-          console.error("Directions API failed", err)
-        }
-
-        // If no route coords or failed, fallback to straight line with 50 interpolated points
-        if (routeCoords.length === 0) {
-          routeCoords = [startCoords, endCoords]
-        }
-
-        let currentStep = 0
-        const totalSteps = routeCoords.length * 3 // 3 frames per point for smooth movement
-        
-        map.current?.flyTo({ center: startCoords, zoom: 14.5 })
-
-        currentStepInterval.current = setInterval(() => {
-          currentStep++
-          
-          const progress = currentStep / totalSteps
-          const pointIndex = progress * (routeCoords.length - 1)
-          const lowerIndex = Math.floor(pointIndex)
-          const upperIndex = Math.ceil(pointIndex)
-          
-          if (lowerIndex >= routeCoords.length - 1) {
-            clearInterval(currentStepInterval.current!)
-            map.current?.flyTo({ center: endCoords, zoom: 15 })
-            driverMarker.current?.setLngLat(endCoords)
-            if (map.current?.getSource('route')) {
-               // Clear route on arrival
-               (map.current.getSource('route') as mapboxgl.GeoJSONSource).setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} } as any)
-            }
-            return
-          }
-
-          const segmentProgress = pointIndex - lowerIndex
-          const p1 = routeCoords[lowerIndex]
-          const p2 = routeCoords[upperIndex]
-          
-          const lng = p1[0] + (p2[0] - p1[0]) * segmentProgress
-          const lat = p1[1] + (p2[1] - p1[1]) * segmentProgress
-
-          // Rotate vehicle marker pointing in direction of destination coordinates
-          const bearing = calculateBearing(p1[1], p1[0], p2[1], p2[0])
-          if (!isNaN(bearing)) driverMarker.current?.setRotation(bearing)
-          driverMarker.current?.setLngLat([lng, lat])
-
-        }, 100) // update every 100ms
-      }
-
-      const currentDriverPos = driverMarker.current.getLngLat()
-
-      if (order.status === 'accepted') {
-        animateMarker([currentDriverPos.lng, currentDriverPos.lat], [pLng, pLat])
-      } else if (order.status === 'picked_up') {
-        animateMarker([pLng, pLat], [dLng, dLat])
-      } else if (order.status === 'arrived') {
-        driverMarker.current.setLngLat([pLng, pLat])
-        map.current.flyTo({ center: [pLng, pLat], zoom: 15.5 })
-      } else if (order.status === 'offered') {
-        const startOffsetLng = pLng - 0.005
-        const startOffsetLat = pLat + 0.003
-        driverMarker.current.setLngLat([startOffsetLng, startOffsetLat])
-        map.current.flyTo({ center: [startOffsetLng, startOffsetLat], zoom: 14 })
-      }
-    } else {
-      if (pickupMarker.current) {
-        pickupMarker.current.remove()
-        pickupMarker.current = null
-      }
-      if (dropoffMarker.current) {
-        dropoffMarker.current.remove()
-        dropoffMarker.current = null
-      }
-    }
-
-    return () => {
-      if (currentStepInterval.current) clearInterval(currentStepInterval.current)
-    }
-  }, [order?.status, order?.id])
-
-  return (
-    <div className="relative h-80 w-full overflow-hidden bg-muted">
-      <div ref={ref} className="absolute inset-0 z-0 h-full w-full" />
-      <div className="absolute left-4 top-4 z-10 rounded-full bg-card/90 backdrop-blur px-3 py-1.5 text-xs font-semibold shadow-lg text-foreground">
-        {gps}
-      </div>
-      <button
-        onClick={() => {
-          if (map.current && driverMarker.current) {
-            const pos = driverMarker.current.getLngLat()
-            map.current.flyTo({ center: pos, zoom: 16 })
-          }
-        }}
-        aria-label="Pusatkan lokasi"
-        className="absolute bottom-4 right-4 z-10 flex size-11 items-center justify-center rounded-full bg-card shadow-lg text-primary transition-transform hover:scale-105 active:scale-95"
-      >
-        <Crosshair className="size-5" />
-      </button>
-    </div>
-  )
-}
-
-/* ==========================================================================
-   COMPONENT: DEV PANEL MODAL
-   ========================================================================== */
-function DevPanel({
-  open,
-  onClose,
-  order,
-  run,
-  pending
-}: {
-  open: boolean
-  onClose: () => void
-  order: any
-  run: (action: () => Promise<void>, nextStatus?: string, details?: any) => void
-  pending: boolean
-}) {
-  if (!open) return null
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-      <div className="w-full max-w-sm rounded-3xl bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
-        <header className="flex items-center justify-between pb-4 border-b">
-          <div className="flex items-center gap-2 text-destructive">
-            <Wrench className="size-5" />
-            <h2 className="font-bold">Dev Simulator Tools</h2>
-          </div>
-          <button onClick={onClose} className="rounded-full p-1 hover:bg-muted">
-            <X className="size-5" />
-          </button>
-        </header>
-
-        <div className="mt-4 flex flex-col gap-3">
-          <button
-            onClick={() => {
-              onClose()
-              run(simulateNewOrder)
-            }}
-            disabled={pending || (order && order.status !== 'cancelled' && order.status !== 'completed')}
-            className="flex h-12 items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground font-semibold disabled:opacity-50"
-          >
-            <Sparkles className="size-5" />
-            Simulasi Order Baru
-          </button>
-
-          {order && !['completed', 'cancelled'].includes(order.status) && (
-            <button
-              onClick={() => {
-                onClose()
-                run(() => declineOrder(order.id))
-              }}
-              disabled={pending}
-              className="flex h-12 items-center justify-center gap-2 rounded-xl bg-destructive/10 text-destructive font-semibold hover:bg-destructive/20"
-            >
-              <ShieldAlert className="size-5" />
-              Tolak/Batalkan Orderan
-            </button>
-          )}
-
-          <button
-            onClick={() => {
-              onClose()
-              run(addFakeEarnings)
-            }}
-            disabled={pending}
-            className="flex h-12 items-center justify-center gap-2 rounded-xl bg-secondary text-secondary-foreground font-semibold hover:bg-muted"
-          >
-            <CircleDollarSign className="size-5 text-primary" />
-            Top Up Simulasi Dompet
-          </button>
-
-          <button
-            onClick={() => {
-              onClose()
-              location.assign('/admin')
-            }}
-            className="flex h-12 items-center justify-center gap-2 rounded-xl bg-slate-800 text-slate-100 font-semibold hover:bg-slate-700"
-          >
-            <ShieldCheck className="size-5 text-primary" />
-            Buka Portal Admin
-          </button>
-
-          <button
-            onClick={() => {
-              if (confirm('Apakah Anda yakin ingin menghapus semua data profil dan order?')) {
-                onClose()
-                run(resetDriverData)
-              }
-            }}
-            disabled={pending}
-            className="mt-4 flex h-12 items-center justify-center gap-2 rounded-xl bg-muted text-destructive font-bold border border-destructive/20"
-          >
-            <LogOut className="size-5" />
-            Reset Data & Ulang Onboarding
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 /* ==========================================================================
    VIEW: DASHBOARD / HOME VIEW
@@ -798,10 +573,23 @@ function HomeView({
   credit: number
   diamonds: number
   tier: { label: string; style: string }
-  openDrawer: (drawer: 'chat' | 'phone' | 'safety' | 'withdrawal' | 'targets' | 'services' | null) => void
+  openDrawer: (drawer: 'chat' | 'phone' | 'safety' | 'withdrawal' | 'targets' | 'services' | 'coach' | 'destination' | null) => void
 }) {
   const p = data.profile
+  if (!p) return null
   const creditAlert = credit < 10000
+
+  // 100% Genuine automatic order simulation
+  useEffect(() => {
+    if (p.isOnline && !order && !pending) {
+      // Random delay between 4 to 12 seconds
+      const delay = Math.floor(Math.random() * 8000) + 4000
+      const timer = setTimeout(() => {
+        run(assignNewOrder)
+      }, delay)
+      return () => clearTimeout(timer)
+    }
+  }, [p.isOnline, order, pending, run])
 
   return (
     <div className="flex flex-col">
@@ -829,7 +617,7 @@ function HomeView({
             {p.isOnline && (
               <span className="text-[10px] text-primary font-bold flex items-center gap-1 mt-0.5">
                 <span className="size-1.5 rounded-full bg-primary animate-ping" />
-                ðŸ’Ž {diamonds} Berlian hari ini
+                💎 {diamonds} Berlian hari ini
               </span>
             )}
           </div>
@@ -848,8 +636,33 @@ function HomeView({
         </div>
       </header>
 
-      {/* Map Segment */}
-      <MapView order={order} />
+      <div className="relative w-full">
+        {/* Floating Earnings Bar */}
+        {p.isOnline && (
+          <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/85 p-3.5 text-slate-100 backdrop-blur-md shadow-lg animate-in slide-in-from-top duration-300">
+            <div className="flex items-center gap-3">
+              <span className="flex size-9 items-center justify-center rounded-full bg-primary/20 text-primary">
+                <Wallet className="size-5" />
+              </span>
+              <div>
+                <span className="text-[9px] text-slate-400 uppercase font-black tracking-wider block">Pendapatan Hari Ini</span>
+                <strong className="text-md font-extrabold text-white">
+                  {rupiah(data.orders.filter(o => o.status === 'completed').reduce((sum, o) => sum + (o.fare - Math.round(o.fare * 0.20)), 0))}
+                </strong>
+              </div>
+            </div>
+            <button
+              onClick={() => openDrawer('withdrawal')}
+              className="rounded-xl bg-primary px-3 py-1.5 text-[10px] font-black text-primary-foreground uppercase transition-all hover:bg-primary/90 active:scale-95 shadow-sm shadow-primary/25"
+            >
+              Tarik Tunai
+            </button>
+          </div>
+        )}
+
+        {/* Map Segment */}
+        <MapView order={order} />
+      </div>
 
       <section className="relative -mt-4 flex flex-col gap-4 rounded-t-3xl bg-background p-5 shadow-2xl">
         {/* Toggle Online/Offline */}
@@ -913,6 +726,34 @@ function HomeView({
           </span>
         </button>
 
+        {/* Toggle Quiet Ride */}
+        <button
+          onClick={() => run(toggleQuietRide)}
+          disabled={pending}
+          className="flex items-center justify-between rounded-2xl bg-secondary p-4 text-left transition-colors hover:bg-muted"
+        >
+          <span className="flex items-center gap-3">
+            <span className="flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+              <VolumeX className="size-5" />
+            </span>
+            <span>
+              <strong className="block text-foreground text-sm">Mode Bisu (Quiet Ride)</strong>
+              <small className="text-muted-foreground text-xs">Kurangi obrolan dengan penumpang</small>
+            </span>
+          </span>
+          <span
+            className={`h-6 w-11 rounded-full p-0.5 transition-colors ${
+              p.quietRideEnabled ? 'bg-primary' : 'bg-border'
+            }`}
+          >
+            <span
+              className={`block size-5 rounded-full bg-card shadow-sm transition-transform ${
+                p.quietRideEnabled ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </span>
+        </button>
+
         {/* Dynamic Bidding card / Status Card */}
         {order ? (
           <OrderCard order={order} run={run} pending={pending} openDrawer={openDrawer} />
@@ -922,7 +763,7 @@ function HomeView({
             <strong className="text-foreground">Menunggu order terdekat</strong>
             <p className="text-xs text-muted-foreground max-w-[250px]">
               {p.isOnline
-                ? 'Harap tunggu, orderan akan masuk otomatis. Anda bisa memicu orderan dari panel dev atas.'
+                ? 'Harap tunggu, sistem sedang mencari orderan yang cocok di sekitar area ini.'
                 : 'Silakan aktifkan mode Online di atas untuk mulai mencari penumpang.'}
             </p>
           </div>
@@ -932,9 +773,9 @@ function HomeView({
         <div className="grid grid-cols-4 gap-2">
           {[
             { icon: CircleDollarSign, label: 'Withdrawal', action: () => openDrawer('withdrawal') },
-            { icon: Target, label: 'Target', action: () => openDrawer('targets') },
-            { icon: ShieldCheck, label: 'Safety', action: () => openDrawer('safety') },
-            { icon: Menu, label: 'Lainnya', action: () => openDrawer('safety') }
+            { icon: Compass, label: 'Tujuan Searah', action: () => openDrawer('destination') },
+            { icon: Bot, label: 'Coach AI', action: () => openDrawer('coach') },
+            { icon: Menu, label: 'Lainnya', action: () => openDrawer('services') }
           ].map(({ icon: Icon, label, action }) => (
             <button
               key={label}
@@ -960,10 +801,10 @@ function OrderCard({
   pending,
   openDrawer
 }: {
-  order: any
-  run: (fn: () => Promise<void>, nextStatus?: string, details?: any) => void
+  order: Order
+  run: (fn: () => Promise<void>, nextStatus?: string, details?: Order) => void
   pending: boolean
-  openDrawer: (drawer: any) => void
+  openDrawer: (drawer: 'chat' | 'phone' | 'safety' | 'withdrawal' | 'targets' | 'services' | null) => void
 }) {
   const steps: Record<string, { label: string; next: string }> = {
     offered: { label: 'Terima Orderan', next: 'accepted' },
@@ -975,28 +816,32 @@ function OrderCard({
   
   // Offered Countdown State
   const [countdown, setCountdown] = useState(15)
+  const countdownRef = useRef(15)
 
   useEffect(() => {
     if (order.status !== 'offered') return
     setCountdown(15)
+    countdownRef.current = 15
     
     // Play bidding beep chime
     playBiddingBeep()
 
     const interval = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval)
-          // Auto-decline order
-          run(() => declineOrder(order.id))
-          return 0
-        }
+      countdownRef.current -= 1
+      if (countdownRef.current <= 0) {
+        clearInterval(interval)
+        setCountdown(0)
+        run(() => declineOrder(order.id))
+        return
+      }
+      if (countdownRef.current <= 3) {
         playBiddingBeep()
-        return prev - 1
-      })
+      }
+      setCountdown(countdownRef.current)
     }, 1000)
 
     return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order.id, order.status])
 
   // Styling based on Grab Service Type
@@ -1162,7 +1007,7 @@ function OrderCard({
 /* ==========================================================================
    COMPONENT: TRIP RECEIPT INVOICE OVERLAY POPUP
    ========================================================================== */
-function ReceiptModal({ order, onClose }: { order: any; onClose: () => void }) {
+function ReceiptModal({ order, onClose }: { order: Order; onClose: () => void }) {
   const commission = Math.round(order.fare * 0.20)
   const netEarnings = order.fare - commission
   const [driverRating, setDriverRating] = useState(5)
@@ -1243,7 +1088,7 @@ function ActivityView({ orders }: { orders: any[] }) {
                 <strong className="text-sm font-extrabold text-foreground">{rupiah(o.fare)}</strong>
               </div>
               <p className="text-xs text-muted-foreground truncate">
-                {o.pickupAddress} â†’ {o.dropoffAddress}
+                {o.pickupAddress} → {o.dropoffAddress}
               </p>
               <div className="flex justify-between items-center text-[10px] border-t pt-2 mt-1">
                 <span
@@ -1323,7 +1168,7 @@ function EarningsView({
           <p className="mt-2 text-2xl font-black text-foreground">{rupiah(credit)}</p>
           <p className="text-[9px] text-muted-foreground mt-1">Digunakan untuk deposit potongan komisi sistem (20%).</p>
           <button
-            onClick={() => alert('Top Up deposit dompet kredit dapat dilakukan via Simulator Panel (tombol obeng kanan atas).')}
+            onClick={() => alert('Isi ulang dompet kredit dapat dilakukan di agen atau minimarket terdekat.')}
             className="mt-4 rounded-full bg-secondary px-4 py-2 text-xs font-bold text-foreground hover:bg-muted"
           >
             Isi Ulang Kredit
@@ -1374,7 +1219,7 @@ function EarningsView({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-semibold text-foreground">{e.description}</p>
                 <small className="text-[9px] text-muted-foreground">
-                  {e.type.toUpperCase()} â€¢ {new Date(e.createdAt).toLocaleDateString('id-ID')}
+                  {e.type.toUpperCase()} • {new Date(e.createdAt).toLocaleDateString('id-ID')}
                 </small>
               </div>
               <strong className={`text-xs ${e.amount > 0 ? 'text-primary' : 'text-destructive'}`}>
@@ -1447,49 +1292,251 @@ function ProfileView({
   diamonds,
   run
 }: {
-  profile: any
-  vehicle: any
-  user: any
+  profile: DriverProfile
+  vehicle: Vehicle | null
+  user: { name: string; email: string }
   tier: { label: string; style: string }
   diamonds: number
   run: (action: () => Promise<void>) => void
 }) {
+  const [activeModal, setActiveModal] = useState<'benefits' | 'academy' | null>(null)
+  const [expandedSection, setExpandedSection] = useState<'personal' | 'vehicle' | 'legal' | 'bank' | null>(null)
+
+  const toggleSection = (section: 'personal' | 'vehicle' | 'legal' | 'bank') => {
+    setExpandedSection(prev => prev === section ? null : section)
+  }
+
+  // Mask sensitive data
+  const maskString = (str: string | null, start = 4, end = 4) => {
+    if (!str) return 'Belum Diisi'
+    if (str.length <= start + end) return str
+    const masked = '*'.repeat(str.length - start - end)
+    return str.slice(0, start) + masked + str.slice(-end)
+  }
+
   return (
-    <Page title="Profil" subtitle="Akun Mitra Driver terverifikasi">
-      <div className="flex items-center gap-4 rounded-3xl bg-foreground p-5 text-background shadow-lg">
-        <img
-          src="/placeholder-user.jpg"
-          alt={user.name}
-          className="size-14 rounded-full border-2 border-primary object-cover shadow-sm bg-primary"
-        />
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="font-extrabold text-base">{user.name}</h2>
-            <span className={`rounded px-1.5 py-0.5 text-[8px] font-black uppercase border tracking-wider bg-gradient-to-r ${tier.style}`}>
-              {tier.label}
+    <Page title="Profil Saya" subtitle="Kelola identitas, kendaraan, & dokumen kemitraan">
+      {/* Premium Profile Header Card */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-slate-950 to-primary/20 p-6 text-slate-100 shadow-xl border border-primary/10">
+        <div className="absolute top-0 right-0 w-24 h-24 bg-primary/10 rounded-full blur-2xl"></div>
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <img
+              src="/placeholder-user.jpg"
+              alt={user.name}
+              className="size-16 rounded-full border-2 border-primary object-cover shadow-md bg-primary/20"
+            />
+            <span className="absolute bottom-0 right-0 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+              <Check className="size-3 font-black" />
             </span>
           </div>
-          <p className="text-xs opacity-75">{user.email}</p>
-          <span className="mt-1.5 inline-block rounded-full bg-primary/20 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-primary">
-            MITRA: {profile.verificationStatus}
-          </span>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="font-extrabold text-base text-white">{user.name}</h2>
+              <span className={`rounded-sm px-1.5 py-0.5 text-[8px] font-black uppercase border tracking-wider bg-gradient-to-r ${tier.style}`}>
+                {tier.label}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">ID: M-{profile.id || '294719'}-JKT</p>
+            <div className="flex items-center gap-1.5 mt-2">
+              {profile.verificationStatus === 'approved' ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/20">
+                  <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Status: Aktif
+                </span>
+              ) : profile.verificationStatus === 'pending' ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-500 border border-amber-500/20">
+                  <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  Status: Ditinjau
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-bold text-destructive border border-destructive/20">
+                  <span className="size-1.5 rounded-full bg-destructive" />
+                  Status: Ditangguhkan
+                </span>
+              )}
+              <span className="text-[10px] text-slate-400">
+                • {vehicle?.type === 'car' ? 'Mitra GrabCar' : 'Mitra GrabBike'}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
+      {/* Driver Performance Metrics */}
       <div className="grid grid-cols-3 gap-2">
-        <Metric label="Rating Driver" value={profile.rating} />
-        <Metric label="Loyalitas" value={`ðŸ’Ž ${diamonds}`} />
-        <Metric label="Penyelesaian" value={`${profile.completionRate}%`} />
+        <div className="rounded-2xl border bg-card p-3 text-center shadow-xs flex flex-col justify-between">
+          <span className="text-[9px] text-muted-foreground uppercase font-black tracking-wider">Rating</span>
+          <strong className="block text-md font-extrabold text-foreground mt-1 flex items-center justify-center gap-1">
+            <Star className="size-4 fill-primary text-primary" /> {profile.rating}
+          </strong>
+        </div>
+        <div className="rounded-2xl border bg-card p-3 text-center shadow-xs flex flex-col justify-between">
+          <span className="text-[9px] text-muted-foreground uppercase font-black tracking-wider">Penerimaan</span>
+          <strong className="block text-md font-extrabold text-foreground mt-1">{profile.acceptanceRate}%</strong>
+        </div>
+        <div className="rounded-2xl border bg-card p-3 text-center shadow-xs flex flex-col justify-between">
+          <span className="text-[9px] text-muted-foreground uppercase font-black tracking-wider">Penyelesaian</span>
+          <strong className="block text-md font-extrabold text-foreground mt-1">{profile.completionRate}%</strong>
+        </div>
       </div>
 
+      {/* Detailed Accordions for Full Profile Information */}
+      <div className="flex flex-col gap-2 rounded-2xl border bg-card overflow-hidden">
+        {/* Personal Details */}
+        <div className="border-b last:border-0">
+          <button 
+            onClick={() => toggleSection('personal')}
+            className="flex w-full items-center justify-between p-4 text-left hover:bg-muted/40 transition-colors"
+          >
+            <span className="flex items-center gap-3">
+              <UserRound className="size-5 text-primary" />
+              <span>
+                <strong className="block text-xs font-bold text-foreground">Informasi Personal</strong>
+                <small className="text-[9px] text-muted-foreground">Telepon, alamat, kontak darurat</small>
+              </span>
+            </span>
+            <ChevronRight className={`size-4 text-muted-foreground transition-transform ${expandedSection === 'personal' ? 'rotate-90' : ''}`} />
+          </button>
+          {expandedSection === 'personal' && (
+            <div className="bg-muted/20 px-12 pb-4 text-xs flex flex-col gap-2 border-t pt-3">
+              <div className="flex justify-between py-1 border-b border-border/50">
+                <span className="text-muted-foreground">No. Telepon</span>
+                <span className="font-semibold text-foreground">{profile.phone || 'Belum Diisi'}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-border/50">
+                <span className="text-muted-foreground">Kontak Darurat</span>
+                <span className="font-semibold text-foreground">{profile.emergencyContact || 'Belum Diisi'}</span>
+              </div>
+              <div className="flex flex-col py-1">
+                <span className="text-muted-foreground mb-0.5">Alamat Lengkap</span>
+                <span className="font-semibold text-foreground leading-normal">{profile.address || 'Belum Diisi'}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Vehicle Details */}
+        <div className="border-b last:border-0">
+          <button 
+            onClick={() => toggleSection('vehicle')}
+            className="flex w-full items-center justify-between p-4 text-left hover:bg-muted/40 transition-colors"
+          >
+            <span className="flex items-center gap-3">
+              <Bike className="size-5 text-primary" />
+              <span>
+                <strong className="block text-xs font-bold text-foreground">Detail Kendaraan</strong>
+                <small className="text-[9px] text-muted-foreground">Merek, model, plat nomor, nomor STNK</small>
+              </span>
+            </span>
+            <ChevronRight className={`size-4 text-muted-foreground transition-transform ${expandedSection === 'vehicle' ? 'rotate-90' : ''}`} />
+          </button>
+          {expandedSection === 'vehicle' && (
+            <div className="bg-muted/20 px-12 pb-4 text-xs flex flex-col gap-2 border-t pt-3">
+              <div className="flex justify-between py-1 border-b border-border/50">
+                <span className="text-muted-foreground">Kendaraan</span>
+                <span className="font-semibold text-foreground">{vehicle?.brand} {vehicle?.model}</span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-border/50">
+                <span className="text-muted-foreground">Plat Nomor</span>
+                <span className="font-semibold text-foreground uppercase">{vehicle?.plateNumber}</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-muted-foreground">No. STNK</span>
+                <span className="font-semibold text-foreground uppercase">{maskString(vehicle?.stnkNumber || null, 5, 3)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Legal Documents */}
+        <div className="border-b last:border-0">
+          <button 
+            onClick={() => toggleSection('legal')}
+            className="flex w-full items-center justify-between p-4 text-left hover:bg-muted/40 transition-colors"
+          >
+            <span className="flex items-center gap-3">
+              <FileText className="size-5 text-primary" />
+              <span>
+                <strong className="block text-xs font-bold text-foreground">Dokumen Legal Kemitraan</strong>
+                <small className="text-[9px] text-muted-foreground">NIK KTP, nomor lisensi mengemudi (SIM)</small>
+              </span>
+            </span>
+            <ChevronRight className={`size-4 text-muted-foreground transition-transform ${expandedSection === 'legal' ? 'rotate-90' : ''}`} />
+          </button>
+          {expandedSection === 'legal' && (
+            <div className="bg-muted/20 px-12 pb-4 text-xs flex flex-col gap-2 border-t pt-3">
+              <div className="flex justify-between py-1 border-b border-border/50">
+                <span className="text-muted-foreground">NIK KTP</span>
+                <span className="font-semibold text-foreground">{maskString(profile.nik, 4, 4)}</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-muted-foreground">Nomor SIM</span>
+                <span className="font-semibold text-foreground">{maskString(profile.simNumber, 4, 3)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Bank & Payout Info */}
+        <div className="border-b last:border-0">
+          <button 
+            onClick={() => toggleSection('bank')}
+            className="flex w-full items-center justify-between p-4 text-left hover:bg-muted/40 transition-colors"
+          >
+            <span className="flex items-center gap-3">
+              <CreditCard className="size-5 text-primary" />
+              <span>
+                <strong className="block text-xs font-bold text-foreground">Rekening Pencairan Pendapatan</strong>
+                <small className="text-[9px] text-muted-foreground">Nama bank, nomor rekening penerima</small>
+              </span>
+            </span>
+            <ChevronRight className={`size-4 text-muted-foreground transition-transform ${expandedSection === 'bank' ? 'rotate-90' : ''}`} />
+          </button>
+          {expandedSection === 'bank' && (
+            <div className="bg-muted/20 px-12 pb-4 text-xs flex flex-col gap-2 border-t pt-3">
+              <div className="flex justify-between py-1 border-b border-border/50">
+                <span className="text-muted-foreground">Nama Bank</span>
+                <span className="font-semibold text-foreground">{profile.bankName || 'Belum Diisi'}</span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-muted-foreground">No. Rekening</span>
+                <span className="font-semibold text-foreground">{maskString(profile.bankAccount, 3, 3)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Grab Benefits, GrabAcademy, safety, admin, and logout */}
       <section className="rounded-2xl border bg-card overflow-hidden">
-        <Row
-          icon={Bike}
-          label={`${vehicle?.brand || 'Kendaraan'} ${vehicle?.model || ''}`}
-          sub={vehicle?.plateNumber || 'Plat Nomor Belum Diisi'}
-        />
-        <Row icon={ShieldCheck} label="Pusat Keselamatan" sub="Kelola kontak darurat & SOS" />
-        <Row icon={Headphones} label="Layanan Bantuan 24/7" sub="Hubungi pusat bantuan Grab Mitra" />
+        <button 
+          onClick={() => setActiveModal('benefits')}
+          className="flex w-full items-center gap-3 border-b p-4 text-left last:border-0 hover:bg-muted/40 transition-colors"
+        >
+          <Gift className="size-5 text-primary" />
+          <span className="flex-1 min-w-0">
+            <strong className="block text-xs font-bold text-foreground truncate">GrabBenefits</strong>
+            <small className="text-[10px] text-muted-foreground block truncate">Keuntungan eksklusif & diskon Mitra</small>
+          </span>
+          <ChevronRight className="size-4 text-muted-foreground" />
+        </button>
+
+        <button 
+          onClick={() => setActiveModal('academy')}
+          className="flex w-full items-center gap-3 border-b p-4 text-left last:border-0 hover:bg-muted/40 transition-colors"
+        >
+          <GraduationCap className="size-5 text-primary" />
+          <span className="flex-1 min-w-0">
+            <strong className="block text-xs font-bold text-foreground truncate">GrabAcademy</strong>
+            <small className="text-[10px] text-muted-foreground block truncate">Pelatihan online & sertifikasi Mitra</small>
+          </span>
+          <ChevronRight className="size-4 text-muted-foreground" />
+        </button>
+
+        <Row icon={ShieldCheck} label="Pusat Keselamatan SOS" sub="Kelola kontak darurat & keselamatan berkendara" />
+        <Row icon={Headphones} label="Layanan Bantuan 24/7" sub="Hubungi pusat bantuan Grab Mitra Indonesia" />
+        
         <button
           onClick={() => location.assign('/admin')}
           className="flex w-full items-center gap-3 border-b p-4 text-left last:border-0 hover:bg-muted/40 transition-colors"
@@ -1506,13 +1553,105 @@ function ProfileView({
       <button
         onClick={() => {
           if (confirm('Apakah Anda yakin ingin keluar dari aplikasi?')) {
-            authClient.signOut().then(() => location.assign('/sign-in'))
+            authClient.signOut().then(() => location.assign('/sign-in')).catch(() => location.assign('/sign-in'))
           }
         }}
         className="h-12 w-full rounded-xl border border-destructive/20 font-bold text-destructive hover:bg-destructive/5 transition-colors mt-2"
       >
         Keluar Akun
       </button>
+
+      {/* GrabBenefits Modal Sheet */}
+      {activeModal === 'benefits' && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-t-3xl bg-card p-6 shadow-2xl animate-in slide-in-from-bottom duration-200 text-foreground flex flex-col gap-4 max-h-[80vh] overflow-y-auto">
+            <header className="flex justify-between items-center pb-3 border-b">
+              <h3 className="font-extrabold text-base flex items-center gap-2 text-primary">
+                <Gift className="size-5" /> Keuntungan GrabBenefits
+              </h3>
+              <button onClick={() => setActiveModal(null)} className="p-1 hover:bg-muted rounded-full text-muted-foreground">
+                <X className="size-5" />
+              </button>
+            </header>
+            <p className="text-xs text-muted-foreground leading-normal">Berikut adalah voucher keuntungan aktif khusus kategori level Anda ({tier.label}):</p>
+            <div className="flex flex-col gap-3">
+              {[
+                { title: 'Diskon Shell V-Power', desc: 'Hemat Rp 2.000 per liter untuk BBM tipe V-Power', code: 'SHELLGRAB2K' },
+                { title: 'Service Motor Yamaha', desc: 'Diskon 15% untuk paket servis rutin & ganti oli mesin', code: 'YMHGRAB15' },
+                { title: 'Asuransi Kesehatan BPJS', desc: 'Subsidi iuran BPJS Ketenagakerjaan Mitra Aktif', code: 'BPJSGRABSBS' }
+              ].map((b, idx) => (
+                <div key={idx} className="rounded-xl border p-4 bg-muted/20 flex flex-col gap-2">
+                  <div className="flex justify-between items-start">
+                    <strong className="text-xs font-bold text-foreground">{b.title}</strong>
+                    <span className="text-[9px] bg-primary/20 text-primary px-1.5 py-0.5 rounded font-black tracking-wide">AKTIF</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-normal">{b.desc}</p>
+                  <div className="flex items-center justify-between bg-card border border-dashed p-2 rounded-lg mt-1">
+                    <span className="text-[9px] font-mono font-bold select-all tracking-wider text-muted-foreground">{b.code}</span>
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(b.code)
+                        alert('Kode promo disalin!')
+                      }}
+                      className="text-[9px] text-primary font-bold uppercase hover:underline"
+                    >
+                      Salin Kode
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button 
+              onClick={() => setActiveModal(null)}
+              className="h-11 w-full rounded-xl bg-primary text-primary-foreground font-bold mt-2"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* GrabAcademy Modal Sheet */}
+      {activeModal === 'academy' && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md rounded-t-3xl bg-card p-6 shadow-2xl animate-in slide-in-from-bottom duration-200 text-foreground flex flex-col gap-4 max-h-[80vh] overflow-y-auto">
+            <header className="flex justify-between items-center pb-3 border-b">
+              <h3 className="font-extrabold text-base flex items-center gap-2 text-primary">
+                <GraduationCap className="size-5" /> Kursus Pelatihan GrabAcademy
+              </h3>
+              <button onClick={() => setActiveModal(null)} className="p-1 hover:bg-muted rounded-full text-muted-foreground">
+                <X className="size-5" />
+              </button>
+            </header>
+            <p className="text-xs text-muted-foreground leading-normal">Selesaikan materi pelatihan berikut untuk meningkatkan rating & meminimalkan pelanggaran akun:</p>
+            <div className="flex flex-col gap-3">
+              {[
+                { title: 'Etika Pelayanan Pelanggan bintang 5', status: 'Selesai', score: '100/100', desc: 'Cara berkomunikasi ramah & profesional dengan penumpang.' },
+                { title: 'Defensive Riding & Safety First', status: 'Selesai', score: '95/100', desc: 'Panduan berkendara aman, patuh lalu lintas, & antipelanggaran.' },
+                { title: 'Anti-Pelecehan Seksual & Kekerasan di Jalan', status: 'Selesai', score: '100/100', desc: 'Mengenali tanda bahaya & melaporkan perilaku ofensif penumpang.' }
+              ].map((c, idx) => (
+                <div key={idx} className="rounded-xl border p-4 bg-muted/20 flex flex-col gap-2">
+                  <div className="flex justify-between items-start">
+                    <strong className="text-xs font-bold text-foreground">{c.title}</strong>
+                    <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded font-bold">LULUS</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-normal">{c.desc}</p>
+                  <div className="flex justify-between items-center mt-1 text-[10px] text-muted-foreground bg-card p-2 rounded-lg">
+                    <span>Skor Ujian: <strong>{c.score}</strong></span>
+                    <span>Wajib Tahunan</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button 
+              onClick={() => setActiveModal(null)}
+              className="h-11 w-full rounded-xl bg-primary text-primary-foreground font-bold mt-2"
+            >
+              Tutup
+            </button>
+          </div>
+        </div>
+      )}
     </Page>
   )
 }
@@ -1544,27 +1683,53 @@ function ChatDrawer({
 
   if (!open) return null
 
-  const handleSend = (text: string) => {
+  const handleSend = async (text: string) => {
     if (!text.trim()) return
     const newMsg: Message = { id: Date.now(), sender: 'driver', text, time: 'Baru saja' }
     setMessages((prev) => [...prev, newMsg])
     setInputText('')
 
-    setTimeout(() => {
-      const answers = [
-        'Baik pak, saya tunggu ya.',
-        'Oke pak, saya sudah dekat titik jemput.',
-        'Siap pak driver, hati-hati di jalan.',
-        'Siap, sesuai peta ya pak.'
-      ]
-      const randomAns = answers[Math.floor(Math.random() * answers.length)]
+    try {
+      const historyText = messages.map(m => `${m.sender === 'driver' ? 'Driver' : customerName}: ${m.text}`).join('\n')
+      const fullPrompt = historyText + `\nDriver: ${text}\nBalasan dari ${customerName}:`
+      const systemInstruction = `Anda adalah penumpang ojek online bernama ${customerName}. Jawab chat dari Driver. Balas dengan singkat, natural, dan santai (maksimal 1 kalimat). Jangan gunakan tanda kutip di awal atau akhir.`
+
+      const response = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: fullPrompt,
+          systemInstruction,
+          temperature: 0.8
+        })
+      })
+
+      if (!response.ok) throw new Error('API Error')
+      const data = await response.json()
+      if (data.error) throw new Error(data.error)
+
       setMessages((prev) => [
         ...prev,
-        { id: Date.now() + 1, sender: 'customer', text: randomAns, time: 'Baru saja' }
+        { id: Date.now() + 1, sender: 'customer', text: data.text.trim(), time: 'Baru saja' }
       ])
-      // Play soft chat sound on customer reply
       playChatPing()
-    }, 1200)
+    } catch (err) {
+      // Graceful fallback to static replies if API fails or KEY is missing
+      setTimeout(() => {
+        const answers = [
+          'Baik pak, saya tunggu ya.',
+          'Oke pak, saya sudah dekat titik jemput.',
+          'Siap pak driver, hati-hati di jalan.',
+          'Siap, sesuai peta ya pak.'
+        ]
+        const randomAns = answers[Math.floor(Math.random() * answers.length)]
+        setMessages((prev) => [
+          ...prev,
+          { id: Date.now() + 1, sender: 'customer', text: randomAns, time: 'Baru saja' }
+        ])
+        playChatPing()
+      }, 1200)
+    }
   }
 
   return (
@@ -1691,7 +1856,7 @@ function PhoneDrawer({
    ========================================================================== */
 function SafetyDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [sosCountdown, setSosCountdown] = useState<number | null>(null)
-  const timer = useRef<NodeJS.Timeout | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const triggerSOS = () => {
     setSosCountdown(5)
@@ -1960,7 +2125,7 @@ function TargetsDrawer({
           <div className="flex justify-between items-start">
             <h3 className="text-xs font-black uppercase text-muted-foreground tracking-wider">Target Harian</h3>
             <span className="text-xs font-bold text-primary flex items-center gap-1">
-              ðŸ’Ž {diamonds} Berlian
+              💎 {diamonds} Berlian
             </span>
           </div>
           <div className="flex justify-between items-end mt-3">
@@ -2099,98 +2264,474 @@ function ServicesDrawer({
    COMPONENT: ONBOARDING VIEW
    ========================================================================== */
 function Onboarding({ pending, run }: { pending: boolean; run: (action: () => Promise<void>) => void }) {
-  const defaults: Record<string, string> = {
-    phone: '0812-3456-7890',
-    city: 'DKI Jakarta',
-    brand: 'Honda',
-    model: 'Vario 150cc',
-    plate: 'B 3829 SGB',
-    emergency: '0811-9999-8888'
+  const [step, setStep] = useState(1)
+  const [formData, setFormData] = useState({
+    phone: '', city: '', emergencyContact: '', address: '',
+    brand: '', model: '', plateNumber: '', stnkNumber: '', type: 'motorcycle',
+    nik: '', simNumber: '',
+    bankName: '', bankAccount: ''
+  })
+  const [photos, setPhotos] = useState<{ ktp: string | null; sim: string | null; stnk: string | null; selfie: string | null; vehicle: string | null }>({
+    ktp: null, sim: null, stnk: null, selfie: null, vehicle: null
+  })
+  const [uploading, setUploading] = useState<string | null>(null)
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null)
+
+  const handleNext = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (step < 6) setStep(step + 1)
+  }
+
+  const submitFinal = () => {
+    run(async () => {
+      await createDriverProfile({
+        ...formData,
+        photoKtp: photos.ktp || undefined,
+        photoSim: photos.sim || undefined,
+        photoStnk: photos.stnk || undefined,
+        photoSelfie: photos.selfie || undefined,
+        photoVehicle: photos.vehicle || undefined,
+      })
+    })
+  }
+
+  const handleFileUpload = async (docType: 'ktp' | 'sim' | 'stnk' | 'selfie' | 'vehicle', file: File) => {
+    setUploading(docType)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('type', docType)
+      const res = await fetch('/api/upload', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (res.ok && data.url) {
+        setPhotos(prev => ({ ...prev, [docType]: data.url }))
+      } else {
+        alert(data.error || 'Gagal mengunggah file')
+      }
+    } catch {
+      alert('Gagal mengunggah file. Periksa koneksi internet Anda.')
+    } finally {
+      setUploading(null)
+    }
+  }
+
+  const triggerFileInput = (docType: 'ktp' | 'sim' | 'stnk' | 'selfie' | 'vehicle') => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/jpeg,image/png,image/webp'
+    input.capture = docType === 'selfie' ? 'user' : 'environment'
+    input.onchange = (e: any) => {
+      const file = e.target.files?.[0]
+      if (file) handleFileUpload(docType, file)
+    }
+    input.click()
+  }
+
+  const removePhoto = (docType: 'ktp' | 'sim' | 'stnk' | 'selfie' | 'vehicle') => {
+    setPhotos(prev => ({ ...prev, [docType]: null }))
+  }
+
+  const stepLabels = ['Data Diri', 'Kendaraan', 'Dokumen', 'Foto', 'Rekening', 'Konfirmasi']
+
+  const PhotoUploadBox = ({ docType, label, description, icon: BoxIcon }: { docType: 'ktp' | 'sim' | 'stnk' | 'selfie' | 'vehicle'; label: string; description: string; icon: any }) => {
+    const photoUrl = photos[docType]
+    const isUploading = uploading === docType
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+        <div className="flex items-center gap-3 p-3.5 border-b border-slate-100">
+          <div className={`size-9 rounded-xl flex items-center justify-center ${photoUrl ? 'bg-emerald-500/10 text-emerald-600' : 'bg-slate-100 text-slate-400'}`}>
+            {photoUrl ? <CheckCircle2 className="size-5" /> : <BoxIcon className="size-5" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <strong className="block text-xs font-bold text-slate-800 truncate">{label}</strong>
+            <span className="text-[10px] text-muted-foreground block truncate">{description}</span>
+          </div>
+          {photoUrl && (
+            <span className="text-[9px] font-black text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full">TERUNGGAH</span>
+          )}
+        </div>
+        {photoUrl ? (
+          <div className="relative">
+            <img src={photoUrl} alt={label} className="w-full h-40 object-cover" />
+            <div className="absolute bottom-2 right-2 flex gap-1.5">
+              <button type="button" onClick={() => setPreviewPhoto(photoUrl)} className="size-8 rounded-lg bg-white/90 backdrop-blur text-slate-700 flex items-center justify-center shadow-md hover:bg-white">
+                <Eye className="size-4" />
+              </button>
+              <button type="button" onClick={() => removePhoto(docType)} className="size-8 rounded-lg bg-red-500/90 backdrop-blur text-white flex items-center justify-center shadow-md hover:bg-red-500">
+                <Trash2 className="size-4" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={isUploading}
+            onClick={() => triggerFileInput(docType)}
+            className="w-full h-32 flex flex-col items-center justify-center gap-2 text-center hover:bg-slate-50 transition-colors disabled:opacity-50"
+          >
+            {isUploading ? (
+              <>
+                <LoaderCircle className="size-8 text-primary animate-spin" />
+                <span className="text-[10px] font-bold text-primary">Mengunggah...</span>
+              </>
+            ) : (
+              <>
+                <div className="size-12 rounded-2xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400">
+                  <ImagePlus className="size-6" />
+                </div>
+                <span className="text-[10px] font-bold text-slate-500">Ketuk untuk ambil foto atau pilih dari galeri</span>
+                <span className="text-[8px] text-slate-400">JPG, PNG, WebP • Maks 5MB</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
+    )
   }
 
   return (
-    <main className="flex min-h-dvh flex-col bg-background">
-      <header className="bg-slate-950 px-6 pb-10 pt-14 text-slate-100 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <img src="/images/grab-driver-logo.png" alt="Grab Driver Logo" className="h-16 w-auto object-contain rounded-2xl shadow-md border border-slate-800" />
+    <main className="flex min-h-dvh flex-col bg-slate-50/50">
+      {/* Official Grab Driver White/Green Header */}
+      <header className="bg-white px-5 pb-5 pt-14 border-b border-slate-100 shadow-xs">
+        <div className="flex justify-between items-center mb-4">
+          <img src="/images/grab-driver-logo.png" alt="Grab Driver" className="h-10 w-auto object-contain" />
+          <span className="text-[10px] font-black text-primary bg-primary/10 px-2.5 py-1 rounded-full uppercase tracking-wider">
+            Pendaftaran Mitra
+          </span>
         </div>
-        <h1 className="mt-5 text-3xl font-extrabold text-balance">Daftar Mitra Driver</h1>
-        <p className="mt-2 text-xs opacity-75 leading-relaxed">
-          Silakan lengkapi formulir pendaftaran di bawah ini untuk memulai simulasi pengantaran.
-        </p>
+        
+        {/* Step Progress Track */}
+        <div className="flex justify-between items-center gap-1 mt-4">
+          {[1, 2, 3, 4, 5, 6].map(s => (
+            <div key={s} className="flex-1 flex flex-col gap-1.5">
+              <div className="flex items-center gap-0.5">
+                <div className={`size-5 rounded-full flex items-center justify-center text-[9px] font-black border-2 transition-all duration-300 ${
+                  step > s ? 'bg-primary border-primary text-white' :
+                  step === s ? 'border-primary text-primary bg-primary/10' :
+                  'border-slate-200 text-slate-400 bg-white'
+                }`}>
+                  {step > s ? <Check className="size-3" /> : s}
+                </div>
+                {s < 6 && <div className={`flex-1 h-0.5 rounded-full transition-all duration-300 ${step > s ? 'bg-primary' : 'bg-slate-200'}`} />}
+              </div>
+              <span className={`text-[7px] font-bold uppercase text-center truncate leading-none ${step === s ? 'text-primary' : step > s ? 'text-emerald-600' : 'text-slate-400'}`}>
+                {stepLabels[s - 1]}
+              </span>
+            </div>
+          ))}
+        </div>
       </header>
 
-      <div className="flex flex-1 flex-col gap-4 p-6">
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() =>
-            run(async () => {
-              await createDriverProfile({
-                phone: defaults.phone,
-                city: defaults.city,
-                brand: defaults.brand,
-                model: defaults.model,
-                plateNumber: defaults.plate,
-                emergencyContact: defaults.emergency
-              })
-            })
-          }
-          className="h-12 w-full rounded-xl bg-slate-900 border border-primary/30 text-primary font-black uppercase text-xs tracking-wider transition-transform hover:scale-102 active:scale-98 disabled:opacity-60 flex items-center justify-center gap-2 shadow"
-        >
-          <Sparkles className="size-4 animate-pulse" />
-          Daftar Instan (Akun Demo Grab)
-        </button>
-
-        <div className="flex items-center my-2">
-          <div className="flex-1 border-t border-dashed" />
-          <span className="px-3 text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Atau Isi Manual</span>
-          <div className="flex-1 border-t border-dashed" />
+      <div className="flex flex-1 flex-col gap-4 p-4 overflow-y-auto pb-8">
+        {/* Step Title Card */}
+        <div className="bg-white rounded-2xl px-5 py-4 border border-slate-100 shadow-xs">
+          <h2 className="text-sm font-extrabold text-slate-800">
+            {step === 1 && '👤 Lengkapi Informasi Data Diri'}
+            {step === 2 && '🏍️ Lengkapi Informasi Kendaraan'}
+            {step === 3 && '📄 Data Dokumen Legal Kemitraan'}
+            {step === 4 && '📸 Unggah Foto Dokumen & Selfie'}
+            {step === 5 && '🏦 Rekening Pencairan Pendapatan'}
+            {step === 6 && '✅ Konfirmasi Akhir & Verifikasi'}
+          </h2>
+          <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
+            {step === 1 && 'Pastikan data diri Anda sesuai dengan KTP asli yang masih berlaku. Data ini digunakan untuk validasi identitas kemitraan.'}
+            {step === 2 && 'Merek, model, dan nomor polisi harus sesuai dengan kendaraan fisik yang akan digunakan beroperasi.'}
+            {step === 3 && 'Masukkan nomor NIK KTP, SIM, dan STNK Anda. Data akan diverifikasi silang oleh tim peninjau.'}
+            {step === 4 && 'Unggah foto dokumen yang jelas dan tidak buram. Semua foto wajib asli, bukan fotokopi atau screenshot.'}
+            {step === 5 && 'Rekening bank harus atas nama yang sama dengan nama pendaftar. Dana operasional akan ditransfer ke rekening ini.'}
+            {step === 6 && 'Periksa kembali semua data dan dokumen. Dengan mengirim, Anda menyetujui Kode Etik Mitra Pengemudi Grab.'}
+          </p>
         </div>
 
-        <form
-          action={(fd) =>
-            run(async () => {
-              await createDriverProfile({
-                phone: String(fd.get('phone')),
-                city: String(fd.get('city')),
-                brand: String(fd.get('brand')),
-                model: String(fd.get('model')),
-                plateNumber: String(fd.get('plate')),
-                emergencyContact: String(fd.get('emergency'))
-              })
-            })
-          }
-          className="flex flex-col gap-4"
-        >
-          {[
-            ['phone', 'Nomor Telepon Mitra', 'tel'],
-            ['city', 'Kota Operasional', 'text'],
-            ['brand', 'Merek Sepeda Motor', 'text'],
-            ['model', 'Model / Seri Motor', 'text'],
-            ['plate', 'Nomor Polisi (Plat)', 'text'],
-            ['emergency', 'Nomor Kontak Darurat', 'tel']
-          ].map(([name, label, type]) => (
-            <label key={name} className="flex flex-col gap-1.5 text-xs font-semibold text-foreground">
-              {label}
-              <input
-                name={name}
-                type={type}
-                required
-                defaultValue={defaults[name]}
-                className="h-12 w-full rounded-xl border bg-card px-4 font-normal outline-none focus:ring-2 focus:ring-ring text-sm"
-              />
-            </label>
-          ))}
-          <button
-            disabled={pending}
-            className="mt-4 h-12 w-full rounded-xl bg-primary font-black uppercase text-primary-foreground tracking-wider transition-transform hover:scale-102 active:scale-98 disabled:opacity-60"
-          >
-            {pending ? 'Mendaftarkan...' : 'Kirim Berkas Pendaftaran'}
-          </button>
-        </form>
+        {/* Step Content */}
+        <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-xs flex flex-col gap-4 flex-1">
+          <form onSubmit={step === 6 ? (e) => { e.preventDefault(); submitFinal(); } : handleNext} className="flex flex-col gap-4 flex-1">
+            {step === 1 && (
+              <div className="flex flex-col gap-3.5">
+                <Input label="Nama Lengkap (Sesuai KTP)" value={formData.address ? '' : ''} onChange={() => {}} icon={UserRound} placeholder="Otomatis dari data akun" disabled />
+                <Input label="Nomor Telepon Seluler" value={formData.phone} onChange={v => setFormData({ ...formData, phone: v })} icon={Phone} placeholder="Contoh: 081234567890" />
+                <Input label="Kota Operasional" value={formData.city} onChange={v => setFormData({ ...formData, city: v })} icon={MapPin} placeholder="Contoh: Jakarta Selatan" />
+                <Input label="Alamat Lengkap (Sesuai KTP)" value={formData.address} onChange={v => setFormData({ ...formData, address: v })} icon={Home} placeholder="Jl., RT/RW, Kel., Kec., Kota" multiline />
+                <Input label="Kontak Darurat (Keluarga)" value={formData.emergencyContact} onChange={v => setFormData({ ...formData, emergencyContact: v })} icon={PhoneCall} placeholder="Nomor HP keluarga terdekat" />
+              </div>
+            )}
+            {step === 2 && (
+              <div className="flex flex-col gap-3.5">
+                <div className="flex flex-col gap-2 mb-1">
+                  <span className="text-xs font-bold text-slate-700">Jenis Kendaraan</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => setFormData({ ...formData, type: 'motorcycle' })}
+                      className={`h-14 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                        formData.type === 'motorcycle' ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
+                      }`}>
+                      <Bike className="size-5" /> GrabBike
+                    </button>
+                    <button type="button" onClick={() => setFormData({ ...formData, type: 'car' })}
+                      className={`h-14 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                        formData.type === 'car' ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
+                      }`}>
+                      <Car className="size-5" /> GrabCar
+                    </button>
+                  </div>
+                </div>
+                <Input label="Merek Kendaraan" value={formData.brand} onChange={v => setFormData({ ...formData, brand: v })} icon={Bike} placeholder="Contoh: Yamaha, Honda, Toyota" />
+                <Input label="Model / Tipe / CC" value={formData.model} onChange={v => setFormData({ ...formData, model: v })} icon={Bike} placeholder="Contoh: NMAX 155cc, Avanza 1.3" />
+                <Input label="Nomor Polisi (Plat)" value={formData.plateNumber} onChange={v => setFormData({ ...formData, plateNumber: v })} icon={Compass} placeholder="Contoh: B 1234 XYZ" />
+              </div>
+            )}
+            {step === 3 && (
+              <div className="flex flex-col gap-3.5">
+                <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 flex items-start gap-2.5">
+                  <AlertTriangle className="size-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <p className="text-[10px] text-amber-800 leading-relaxed font-medium">
+                    Pastikan nomor dokumen yang Anda masukkan valid dan masih berlaku. Data akan diverifikasi silang dengan database pemerintah.
+                  </p>
+                </div>
+                <Input label="Nomor Induk Kependudukan (NIK)" value={formData.nik} onChange={v => setFormData({ ...formData, nik: v })} icon={FileText} placeholder="16 digit angka pada KTP" />
+                <Input label="Nomor SIM (Surat Izin Mengemudi)" value={formData.simNumber} onChange={v => setFormData({ ...formData, simNumber: v })} icon={FileText} placeholder="Nomor SIM A/C aktif" />
+                <Input label="Nomor STNK Kendaraan" value={formData.stnkNumber} onChange={v => setFormData({ ...formData, stnkNumber: v })} icon={FileText} placeholder="Nomor registrasi STNK" />
+              </div>
+            )}
+            {step === 4 && (
+              <div className="flex flex-col gap-3">
+                <div className="rounded-xl bg-blue-50 border border-blue-200 p-3 flex items-start gap-2.5">
+                  <Camera className="size-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                  <p className="text-[10px] text-blue-800 leading-relaxed font-medium">
+                    Foto harus jelas, tidak buram, tidak terpotong, dan bukan hasil fotokopi. Gunakan pencahayaan yang baik saat mengambil foto.
+                  </p>
+                </div>
+                <PhotoUploadBox docType="ktp" label="Foto KTP (Depan)" description="Foto KTP asli tampak depan, semua teks terbaca jelas" icon={FileText} />
+                <PhotoUploadBox docType="sim" label="Foto SIM (Depan)" description="SIM A untuk GrabCar, SIM C untuk GrabBike" icon={FileText} />
+                <PhotoUploadBox docType="stnk" label="Foto STNK" description="Halaman utama STNK yang memuat data kendaraan" icon={FileText} />
+                <PhotoUploadBox docType="selfie" label="Foto Selfie dengan KTP" description="Pegang KTP di sebelah wajah, pastikan keduanya terlihat jelas" icon={UserRound} />
+                <PhotoUploadBox docType="vehicle" label="Foto Kendaraan" description="Foto kendaraan tampak samping, plat nomor terlihat jelas" icon={formData.type === 'car' ? Car : Bike} />
+              </div>
+            )}
+            {step === 5 && (
+              <div className="flex flex-col gap-3.5">
+                <Input label="Nama Bank" value={formData.bankName} onChange={v => setFormData({ ...formData, bankName: v })} icon={CreditCard} placeholder="Contoh: BCA, Mandiri, BNI, BRI" />
+                <Input label="Nomor Rekening" value={formData.bankAccount} onChange={v => setFormData({ ...formData, bankAccount: v })} icon={CreditCard} placeholder="Nomor rekening tanpa spasi" />
+                <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 flex items-start gap-2.5 mt-1">
+                  <ShieldCheck className="size-4 text-primary mt-0.5 flex-shrink-0" />
+                  <p className="text-[10px] text-slate-600 leading-relaxed font-medium">
+                    Rekening bank harus atas nama yang sama dengan nama di KTP pendaftar. Grab tidak bertanggung jawab atas kesalahan transfer akibat data rekening yang keliru.
+                  </p>
+                </div>
+              </div>
+            )}
+            {step === 6 && (
+              <div className="flex flex-col gap-4">
+                {/* Summary Cards */}
+                <div className="rounded-2xl border border-slate-100 overflow-hidden">
+                  <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100">
+                    <strong className="text-[10px] font-black uppercase tracking-wider text-slate-500">Ringkasan Data Pribadi</strong>
+                  </div>
+                  <div className="p-4 flex flex-col gap-2 text-xs">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Telepon</span><span className="font-bold">{formData.phone || '-'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Kota</span><span className="font-bold">{formData.city || '-'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">NIK</span><span className="font-bold">{formData.nik ? formData.nik.slice(0, 4) + '****' + formData.nik.slice(-4) : '-'}</span></div>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-100 overflow-hidden">
+                  <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100">
+                    <strong className="text-[10px] font-black uppercase tracking-wider text-slate-500">Ringkasan Kendaraan</strong>
+                  </div>
+                  <div className="p-4 flex flex-col gap-2 text-xs">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Jenis</span><span className="font-bold">{formData.type === 'car' ? 'GrabCar' : 'GrabBike'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Kendaraan</span><span className="font-bold">{formData.brand} {formData.model}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Plat</span><span className="font-bold">{formData.plateNumber || '-'}</span></div>
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-100 overflow-hidden">
+                  <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100">
+                    <strong className="text-[10px] font-black uppercase tracking-wider text-slate-500">Dokumen Terunggah</strong>
+                  </div>
+                  <div className="p-4 grid grid-cols-5 gap-2">
+                    {(['ktp', 'sim', 'stnk', 'selfie', 'vehicle'] as const).map(key => (
+                      <div key={key} className="flex flex-col items-center gap-1">
+                        {photos[key] ? (
+                          <img src={photos[key]!} alt={key} className="size-12 rounded-lg object-cover border border-slate-200" />
+                        ) : (
+                          <div className="size-12 rounded-lg bg-slate-100 border border-dashed border-slate-300 flex items-center justify-center">
+                            <X className="size-4 text-slate-400" />
+                          </div>
+                        )}
+                        <span className="text-[8px] font-bold uppercase text-slate-500">{key}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-100 overflow-hidden">
+                  <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-100">
+                    <strong className="text-[10px] font-black uppercase tracking-wider text-slate-500">Rekening Bank</strong>
+                  </div>
+                  <div className="p-4 flex flex-col gap-2 text-xs">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Bank</span><span className="font-bold">{formData.bankName || '-'}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">No. Rekening</span><span className="font-bold">{formData.bankAccount ? '****' + formData.bankAccount.slice(-4) : '-'}</span></div>
+                  </div>
+                </div>
+                <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 flex items-start gap-2.5">
+                  <ShieldCheck className="size-4 text-emerald-600 mt-0.5 flex-shrink-0" />
+                  <p className="text-[10px] text-emerald-800 leading-relaxed font-medium">
+                    Dengan menekan "Kirim Pendaftaran", Anda menyatakan bahwa semua data yang diisi adalah benar dan menyetujui Syarat & Ketentuan serta Kode Etik Mitra Pengemudi Grab Indonesia.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-auto pt-5 flex gap-3">
+              {step > 1 && (
+                <button 
+                  type="button" 
+                  onClick={() => setStep(step - 1)} 
+                  className="h-12 w-24 rounded-xl border border-slate-200 bg-white font-bold text-xs text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  Kembali
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={pending || uploading !== null}
+                className="h-12 flex-1 rounded-xl bg-primary font-black uppercase text-primary-foreground text-xs tracking-wider transition-all hover:bg-primary/95 active:scale-98 disabled:opacity-60 shadow-md shadow-primary/10"
+              >
+                {pending ? 'Memproses...' : step === 6 ? 'Kirim Pendaftaran' : 'Lanjutkan'}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
+
+      {/* Photo Preview Modal */}
+      {previewPhoto && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6" onClick={() => setPreviewPhoto(null)}>
+          <div className="relative max-w-md w-full">
+            <img src={previewPhoto} alt="Preview" className="w-full rounded-2xl shadow-2xl" />
+            <button onClick={() => setPreviewPhoto(null)} className="absolute -top-3 -right-3 size-8 rounded-full bg-white text-slate-700 flex items-center justify-center shadow-lg">
+              <X className="size-5" />
+            </button>
+          </div>
+        </div>
+      )}
     </main>
+  )
+}
+
+function Input({ 
+  label, 
+  value, 
+  onChange, 
+  icon: Icon, 
+  placeholder,
+  disabled,
+  multiline
+}: { 
+  label: string; 
+  value: string; 
+  onChange: (val: string) => void;
+  icon: any;
+  placeholder?: string;
+  disabled?: boolean;
+  multiline?: boolean;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5 text-xs font-bold text-slate-700">
+      {label}
+      <div className="relative">
+        <span className={`absolute left-0 flex items-center pl-3.5 pointer-events-none text-muted-foreground/80 ${multiline ? 'top-3' : 'inset-y-0'}`}>
+          <Icon className="size-4" />
+        </span>
+        {multiline ? (
+          <textarea
+            required={!disabled}
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            placeholder={placeholder}
+            disabled={disabled}
+            rows={2}
+            className="w-full rounded-xl border border-slate-200 bg-slate-50/50 pl-11 pr-4 py-3 font-normal text-slate-800 outline-none transition-all focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/10 text-sm shadow-2xs resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+        ) : (
+          <input
+            required={!disabled}
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            placeholder={placeholder}
+            disabled={disabled}
+            className="h-12 w-full rounded-xl border border-slate-200 bg-slate-50/50 pl-11 pr-4 font-normal text-slate-800 outline-none transition-all focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/10 text-sm shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+        )}
+      </div>
+    </label>
+  )
+}
+
+function DestinationDrawer({ open, onClose, profile, run, pending }: any) {
+  if (!open || !profile) return null
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-50 mx-auto flex h-[50vh] max-w-md flex-col rounded-t-3xl bg-card border-t shadow-2xl animate-in slide-in-from-bottom">
+      <header className="flex items-center justify-between border-b px-5 py-4">
+        <h2 className="font-extrabold flex items-center gap-2"><Compass className="size-5 text-primary"/> Tujuan Searah</h2>
+        <button onClick={onClose} className="rounded-full p-1.5 hover:bg-muted text-muted-foreground"><X className="size-5" /></button>
+      </header>
+      <div className="p-5 flex flex-col gap-4">
+        <p className="text-xs text-muted-foreground">Aktifkan fitur ini agar sistem hanya mencari orderan yang searah dengan tujuan akhir Anda (misal: rumah).</p>
+        <div className="flex items-center gap-3 bg-muted/40 p-4 rounded-xl border">
+          <MapPin className="size-5 text-destructive" />
+          <div className="flex-1">
+            <strong className="block text-xs">Lokasi Tujuan:</strong>
+            <span className="text-sm font-semibold">{profile.city || 'Jakarta'} - Rumah</span>
+          </div>
+        </div>
+        <button
+          disabled={pending}
+          onClick={() => {
+            run(async () => { await setDestinationDirection(profile.destinationDirection ? null : 'home') })
+            onClose()
+          }}
+          className={`h-12 w-full rounded-xl font-bold transition-all ${profile.destinationDirection ? 'bg-destructive/10 text-destructive border border-destructive/20' : 'bg-primary text-primary-foreground'}`}
+        >
+          {profile.destinationDirection ? 'Matikan Tujuan Searah' : 'Aktifkan Tujuan Searah'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function CoachDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 mx-auto flex max-w-md flex-col bg-slate-950 text-slate-100 animate-in slide-in-from-bottom">
+      <header className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+        <div className="flex items-center gap-2">
+          <span className="flex size-8 items-center justify-center rounded-full bg-primary/20 text-primary animate-pulse"><Bot className="size-5" /></span>
+          <h2 className="font-extrabold text-white">GrabCoach AI</h2>
+        </div>
+        <button onClick={onClose} className="rounded-full p-1.5 hover:bg-slate-800 text-slate-400"><X className="size-5" /></button>
+      </header>
+      <div className="flex-1 p-6 flex flex-col items-center justify-center text-center gap-4">
+        <div className="size-24 rounded-full bg-gradient-to-br from-primary to-blue-500 flex items-center justify-center shadow-[0_0_40px_rgba(0,200,100,0.3)] mb-4 relative overflow-hidden">
+           <div className="absolute inset-0 bg-[url('/noise.png')] opacity-20 mix-blend-overlay"></div>
+           <Bot className="size-10 text-white" />
+        </div>
+        <h3 className="text-xl font-black">Halo, Mitra!</h3>
+        <p className="text-sm text-slate-400 max-w-[280px]">
+          Saya adalah asisten suara AI Anda. Saya dapat membantu menganalisis order, membacakan pesan penumpang, dan memantau performa tanpa perlu Anda menyentuh layar.
+        </p>
+        <div className="mt-8 grid grid-cols-2 gap-3 w-full">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-left">
+            <span className="block text-primary mb-1">Coba sebutkan:</span>
+            "Coach, bacakan pesan terbaru dari penumpang"
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-left">
+            <span className="block text-primary mb-1">Atau:</span>
+            "Coach, berapa pendapatan saya hari ini?"
+          </div>
+        </div>
+        <button onClick={onClose} className="mt-6 h-12 w-full rounded-full border border-slate-700 bg-slate-900 font-bold hover:bg-slate-800">
+          Tutup
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -2245,5 +2786,108 @@ function Empty({ icon: Icon, text }: any) {
       <Icon className="size-9 opacity-50" />
       <p className="text-xs">{text}</p>
     </div>
+  )
+}
+
+function PendingVerification({ pending, run }: { pending: boolean; run: (action: () => Promise<void>) => void }) {
+  const router = useRouter()
+  return (
+    <main className="flex min-h-dvh flex-col bg-slate-50 items-center justify-center p-6 text-slate-800">
+      <div className="w-full max-w-sm rounded-3xl bg-white p-7 shadow-xl border border-slate-100 flex flex-col gap-6 items-center text-center">
+        <img src="/images/grab-driver-logo.png" alt="Grab" className="h-10 w-auto object-contain" />
+        
+        <div className="relative flex items-center justify-center">
+          <div className="absolute inset-0 size-20 rounded-full bg-amber-500/10 animate-ping"></div>
+          <div className="size-20 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20 flex items-center justify-center">
+            <Clock3 className="size-10 animate-spin duration-3000" />
+          </div>
+        </div>
+
+        <div>
+          <h1 className="text-xl font-extrabold text-slate-800">Pendaftaran Ditinjau</h1>
+          <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+            Berkas kemitraan Anda (KTP, SIM, STNK, Rekening Bank) sedang diperiksa oleh verifikator Grab Partner Indonesia. Akun Anda akan aktif maksimal 1x24 jam.
+          </p>
+        </div>
+
+        <div className="w-full rounded-2xl bg-slate-50/50 p-4 border border-slate-100 flex flex-col gap-2.5 text-left text-[11px] font-bold">
+          <div className="flex justify-between items-center text-emerald-600">
+            <span>✔ Informasi Personal & Kontak</span>
+            <span>Berhasil</span>
+          </div>
+          <div className="flex justify-between items-center text-emerald-600">
+            <span>✔ Dokumen Legal & Kendaraan</span>
+            <span>Berhasil</span>
+          </div>
+          <div className="flex justify-between items-center text-amber-600">
+            <span className="flex items-center gap-1">
+              <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Pemeriksaan Berkas Latar Belakang
+            </span>
+            <span>Proses</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2.5 w-full">
+          <button
+            onClick={() => {
+              router.refresh()
+            }}
+            disabled={pending}
+            className="h-12 w-full rounded-xl bg-primary text-primary-foreground font-black text-xs uppercase tracking-wider transition-all hover:bg-primary/95 shadow-md shadow-primary/10"
+          >
+            Segarkan Status
+          </button>
+          
+          <button
+            onClick={() => {
+              if (confirm('Keluar dari akun kemitraan Anda?')) {
+                authClient.signOut().then(() => location.assign('/sign-in')).catch(() => location.assign('/sign-in'))
+              }
+            }}
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white font-bold text-xs text-slate-500 hover:bg-slate-50"
+          >
+            Keluar Akun
+          </button>
+        </div>
+      </div>
+    </main>
+  )
+}
+
+function SuspendedAccount() {
+  return (
+    <main className="flex min-h-dvh flex-col bg-slate-50 items-center justify-center p-6 text-slate-800">
+      <div className="w-full max-w-sm rounded-3xl bg-white p-7 shadow-xl border border-slate-100 flex flex-col gap-6 items-center text-center">
+        <img src="/images/grab-driver-logo.png" alt="Grab" className="h-10 w-auto object-contain" />
+        
+        <div className="size-20 rounded-full bg-red-500/10 text-destructive border border-red-500/20 flex items-center justify-center">
+          <ShieldAlert className="size-10" />
+        </div>
+
+        <div>
+          <h1 className="text-xl font-extrabold text-red-600">Akun Ditangguhkan</h1>
+          <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+            Akses ke sistem order kemitraan Grab Driver Anda telah dinonaktifkan sementara karena terdeteksi adanya pelanggaran kode etik pengemudi atau dokumen kemitraan kedaluwarsa.
+          </p>
+        </div>
+
+        <button
+          onClick={() => alert('Silakan datang ke Grab Driver Center terdekat untuk verifikasi ulang berkas fisik (KTP, SIM, & STNK).')}
+          className="h-12 w-full rounded-xl bg-slate-900 text-white font-bold text-xs uppercase tracking-wider hover:bg-slate-800"
+        >
+          Ajukan Banding / Bantuan
+        </button>
+
+        <button
+          onClick={() => {
+            authClient.signOut().then(() => location.assign('/sign-in')).catch(() => location.assign('/sign-in'))
+          }}
+          className="h-11 w-full rounded-xl border border-slate-200 bg-white font-bold text-xs text-slate-500 hover:bg-slate-50"
+        >
+          Keluar Akun
+        </button>
+      </div>
+    </main>
   )
 }

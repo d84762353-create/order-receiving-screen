@@ -4,7 +4,6 @@ __v0_devtools.tsx
 __v0_jsx-dev-runtime.ts
 .snowflake/
 .v0-trash/
-.vercel/
 
 # Environment variables
 .env*.local
@@ -14,3 +13,15 @@ node_modules
 .next/
 .DS_Store
 .vercel
+.env*
+
+# Local PostgreSQL data
+.database/
+
+# Build artifacts
+*.tsbuildinfo
+dev.log
+
+# Scripts (not needed for production)
+deploy.bat
+deploy.ps1

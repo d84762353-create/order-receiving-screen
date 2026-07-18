@@ -2,7 +2,7 @@ import { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Grab Driver Simulator',
+    name: 'Grab Driver App',
     short_name: 'Grab Driver',
     description: 'Aplikasi pengemudi untuk menerima order dan mengelola perjalanan.',
     start_url: '/',

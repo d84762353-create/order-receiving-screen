@@ -1,6 +1,6 @@
-﻿'use client'
+'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useEffect, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -14,20 +14,19 @@ import {
   Users,
   Bike,
   DollarSign,
-  AlertCircle,
   ArrowLeft,
   CheckCircle,
   Ban,
   RefreshCcw,
-  FileText,
-  MapPin,
   PlusCircle,
-  LoaderCircle,
   Wallet,
-  Settings,
   ChevronRight,
-  TrendingUp,
-  Award
+  Eye,
+  Image,
+  X,
+  FileText,
+  UserRound,
+  Car,
 } from 'lucide-react'
 
 type AdminDashboardProps = {
@@ -50,7 +49,7 @@ const rupiah = (value: number) =>
     style: 'currency',
     currency: 'IDR',
     maximumFractionDigits: 0
-  }).format(value)
+  }).format(Number(value) || 0)
 
 const landmarkPresets = [
   { name: 'Stasiun MRT Blok M', lat: '-6.2443280', lng: '106.7989120' },
@@ -77,11 +76,19 @@ export function AdminDashboard({ data, adminUser }: AdminDashboardProps) {
   const [dropoffSelect, setDropoffSelect] = useState(1)
   const [customFare, setCustomFare] = useState(25000)
   const [paymentMethod, setPaymentMethod] = useState('cash')
+  const [reviewDriver, setReviewDriver] = useState<any>(null)
+
+  // Sync selectedDriverId when drivers list changes (after router.refresh)
+  useEffect(() => {
+    if (data.drivers.length > 0 && !data.drivers.find((d) => d.userId === selectedDriverId)) {
+      setSelectedDriverId(data.drivers[0].userId)
+    }
+  }, [data.drivers, selectedDriverId])
 
   // Calculate statistics
   const totalCompletedTrips = data.orders.filter((o) => o.status === 'completed').length
-  const totalRevenue = data.earnings.filter((e) => e.amount > 0).reduce((sum, e) => sum + e.amount, 0)
-  const totalWithdrawals = Math.abs(data.earnings.filter((e) => e.amount < 0).reduce((sum, e) => sum + e.amount, 0))
+  const totalRevenue = data.earnings.filter((e) => e.amount > 0).reduce<number>((sum, e) => sum + (Number(e.amount) || 0), 0)
+  const totalWithdrawals = Math.abs(data.earnings.filter((e) => e.amount < 0).reduce<number>((sum, e) => sum + (Number(e.amount) || 0), 0))
   const netEarningsReserve = totalRevenue - totalWithdrawals
   const activeOnlineDriversCount = data.drivers.filter((d) => d.isOnline).length
   const pendingVerificationsCount = data.drivers.filter((d) => d.verificationStatus === 'pending').length
@@ -100,6 +107,16 @@ export function AdminDashboard({ data, adminUser }: AdminDashboardProps) {
   const handleDispatch = () => {
     if (!selectedDriverId) {
       alert('Silakan pilih driver online terlebih dahulu')
+      return
+    }
+
+    if (!customCustomer.trim()) {
+      alert('Nama customer tidak boleh kosong')
+      return
+    }
+
+    if (Number(customFare) < 1000) {
+      alert('Tarif minimal Rp 1.000')
       return
     }
 
@@ -127,6 +144,9 @@ export function AdminDashboard({ data, adminUser }: AdminDashboardProps) {
         serviceType: 'ride'
       })
       alert('Order berhasil dikirim ke aplikasi driver!')
+      setCustomCustomer('Anisa')
+      setCustomFare(25000)
+      setPaymentMethod('cash')
     })
   }
 
@@ -144,7 +164,7 @@ export function AdminDashboard({ data, adminUser }: AdminDashboardProps) {
             </Link>
             <div>
               <h1 className="text-xl font-black text-primary tracking-wide">GRAB MITRA ADMIN</h1>
-              <p className="text-xs text-slate-400">Portal monitoring dan simulasi pesanan pengemudi</p>
+              <p className="text-xs text-slate-400">Portal monitoring pusat pesanan pengemudi</p>
             </div>
           </div>
           <div className="flex items-center gap-3 bg-slate-800/80 px-4 py-2 rounded-2xl border border-slate-700">
@@ -259,7 +279,7 @@ export function AdminDashboard({ data, adminUser }: AdminDashboardProps) {
                           <div>
                             <strong className="block text-xs font-bold">{d.name}</strong>
                             <small className="text-[10px] text-slate-400">
-                              {d.city} â€¢ {v?.brand || 'Motor'} ({v?.plateNumber || 'n/a'})
+                              {d.city} • {v?.brand || 'Motor'} ({v?.plateNumber || 'n/a'})
                             </small>
                           </div>
                           <span
@@ -283,20 +303,47 @@ export function AdminDashboard({ data, adminUser }: AdminDashboardProps) {
                       {pendingVerificationsCount} Antrean
                     </span>
                   </div>
-                  <div className="flex flex-col gap-3 max-h-64 overflow-y-auto">
+                  <div className="flex flex-col gap-3 max-h-80 overflow-y-auto">
                     {data.drivers.filter(d => d.verificationStatus === 'pending').map((d) => (
-                      <div key={d.id} className="flex items-center justify-between rounded-xl bg-slate-900/60 p-3.5 border border-slate-800/40">
-                        <div>
-                          <strong className="block text-xs font-bold">{d.name}</strong>
-                          <small className="text-[10px] text-slate-400">{d.phone} â€¢ {d.city}</small>
+                      <div key={d.id} className="rounded-xl bg-slate-900/60 border border-slate-800/40 overflow-hidden">
+                        <div className="flex items-center justify-between p-3.5">
+                          <div>
+                            <strong className="block text-xs font-bold">{d.name}</strong>
+                            <small className="text-[10px] text-slate-400">{d.phone} • {d.city}</small>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button
+                              onClick={() => setReviewDriver(d)}
+                              className="rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500 hover:text-white px-2.5 py-1.5 text-[10px] font-bold transition-colors flex items-center gap-1"
+                            >
+                              <Eye className="size-3" /> Tinjau
+                            </button>
+                            <button
+                              onClick={() => runAdminAction(() => updateDriverVerification(d.id, 'approved'))}
+                              disabled={pending}
+                              className="rounded-lg bg-primary px-3 py-1.5 text-[10px] font-black text-primary-foreground hover:bg-primary/95 transition-all"
+                            >
+                              Setujui
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          onClick={() => runAdminAction(() => updateDriverVerification(d.id, 'approved'))}
-                          disabled={pending}
-                          className="rounded-lg bg-primary px-3 py-1.5 text-[10px] font-black text-primary-foreground hover:bg-primary/95 transition-all"
-                        >
-                          Setujui
-                        </button>
+                        {/* Photo thumbnails row */}
+                        {(d.photoKtp || d.photoSim || d.photoStnk || d.photoSelfie || d.photoVehicle) && (
+                          <div className="px-3.5 pb-3 flex gap-1.5">
+                            {[{key:'photoKtp',label:'KTP'},{key:'photoSim',label:'SIM'},{key:'photoStnk',label:'STNK'},{key:'photoSelfie',label:'Selfie'},{key:'photoVehicle',label:'Kndrn'}].map(({key,label}) => (
+                              <div key={key} className="flex flex-col items-center gap-0.5">
+                                {d[key] ? (
+                                  <img src={d[key]} alt={label} className="size-10 rounded-md object-cover border border-slate-700 cursor-pointer hover:border-primary" onClick={() => setReviewDriver(d)} />
+                                ) : (
+                                  <div className="size-10 rounded-md bg-slate-800 border border-dashed border-slate-700 flex items-center justify-center">
+                                    <X className="size-3 text-slate-600" />
+                                  </div>
+                                )}
+                                <span className="text-[7px] text-slate-500 font-bold">{label}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                     {pendingVerificationsCount === 0 && (
@@ -324,6 +371,7 @@ export function AdminDashboard({ data, adminUser }: AdminDashboardProps) {
                       <th className="p-4">Spesifikasi Motor</th>
                       <th className="p-4">Kota</th>
                       <th className="p-4 text-center">Status Peta</th>
+                      <th className="p-4">Dokumen</th>
                       <th className="p-4">Kemitraan</th>
                       <th className="p-4 text-center">Aksi Admin</th>
                     </tr>
@@ -372,6 +420,20 @@ export function AdminDashboard({ data, adminUser }: AdminDashboardProps) {
                             </span>
                           </td>
                           <td className="p-4">
+                            <div className="flex gap-1">
+                              {[d.photoKtp, d.photoSim, d.photoStnk, d.photoSelfie].filter(Boolean).length > 0 ? (
+                                <button
+                                  onClick={() => setReviewDriver(d)}
+                                  className="rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500 hover:text-white px-2 py-1 text-[9px] font-bold transition-colors flex items-center gap-1"
+                                >
+                                  <Image className="size-3" /> {[d.photoKtp, d.photoSim, d.photoStnk, d.photoSelfie, d.photoVehicle].filter(Boolean).length} Foto
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-500">Belum ada</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-4">
                             <div className="flex gap-1 justify-center">
                               {d.verificationStatus !== 'approved' && (
                                 <button
@@ -418,6 +480,9 @@ export function AdminDashboard({ data, adminUser }: AdminDashboardProps) {
                       onChange={(e) => setSelectedDriverId(e.target.value)}
                       className="h-11 rounded-xl border border-slate-700 bg-slate-800 px-3 outline-none text-xs focus:ring-1 focus:ring-primary text-slate-200"
                     >
+                      {data.drivers.length === 0 && (
+                        <option value="" disabled>Tidak ada driver tersedia</option>
+                      )}
                       {data.drivers.map((d) => (
                         <option key={d.userId} value={d.userId}>
                           {d.name} ({d.isOnline ? 'Online' : 'Offline'})
@@ -469,6 +534,8 @@ export function AdminDashboard({ data, adminUser }: AdminDashboardProps) {
                     Tarif Perjalanan (Fare IDR)
                     <input
                       type="number"
+                      min={1000}
+                      step={500}
                       value={customFare}
                       onChange={(e) => setCustomFare(Number(e.target.value))}
                       className="h-11 rounded-xl border border-slate-700 bg-slate-800 px-4 outline-none text-xs focus:ring-1 focus:ring-primary"
@@ -534,7 +601,7 @@ export function AdminDashboard({ data, adminUser }: AdminDashboardProps) {
                             <td className="p-4 font-semibold">{o.customerName}</td>
                             <td className="p-4 max-w-[200px] truncate">
                               <p className="font-semibold text-slate-200">{o.pickupAddress}</p>
-                              <p className="text-[10px] text-slate-400">â†’ {o.dropoffAddress}</p>
+                              <p className="text-[10px] text-slate-400">→ {o.dropoffAddress}</p>
                             </td>
                             <td className="p-4">{rupiah(o.fare)}</td>
                             <td className="p-4 font-black uppercase text-[10px] tracking-wide">

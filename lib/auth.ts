@@ -1,5 +1,6 @@
 import { betterAuth } from 'better-auth'
-import { pool, db } from './db'
+import { drizzleAdapter } from '@better-auth/drizzle-adapter'
+import { db } from './db'
 import { eq } from 'drizzle-orm'
 import * as schema from './db/schema'
 
@@ -13,12 +14,20 @@ const trustedOrigins = [
 ].filter(Boolean) as string[]
 
 export const auth = betterAuth({
-  database: pool,
+  database: drizzleAdapter(db, {
+    provider: 'pg',
+    schema: {
+      user: schema.user,
+      session: schema.session,
+      account: schema.account,
+      verification: schema.verification
+    }
+  }),
   secret: process.env.BETTER_AUTH_SECRET || 'better-auth-secret-key-fallback-for-demo',
   baseURL,
   trustedOrigins,
   emailAndPassword: { enabled: true, minPasswordLength: 8 },
-  advanced: process.env.NODE_ENV === 'development' ? { defaultCookieAttributes: { sameSite: 'none', secure: true } } : undefined,
+  advanced: { defaultCookieAttributes: { sameSite: 'lax' } },
   user: {
     additionalFields: {
       role: {

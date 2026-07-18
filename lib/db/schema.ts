@@ -25,13 +25,17 @@ export const verification = pgTable('verification', {
 export const driverProfiles = pgTable('driver_profiles', {
   id: serial('id').primaryKey(), userId: text('userId').notNull().unique(), phone: text('phone'), city: text('city').default('Jakarta'),
   verificationStatus: text('verificationStatus').notNull().default('pending'), isOnline: boolean('isOnline').notNull().default(false),
-  turboEnabled: boolean('turboEnabled').notNull().default(true), rating: numeric('rating', { precision: 3, scale: 2 }).notNull().default('5.00'),
+  turboEnabled: boolean('turboEnabled').notNull().default(true), quietRideEnabled: boolean('quietRideEnabled').notNull().default(false), destinationDirection: text('destinationDirection'),
+  rating: numeric('rating', { precision: 3, scale: 2 }).notNull().default('5.00'),
   acceptanceRate: integer('acceptanceRate').notNull().default(100), completionRate: integer('completionRate').notNull().default(100),
-  emergencyContact: text('emergencyContact'), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
+  emergencyContact: text('emergencyContact'), nik: text('nik'), simNumber: text('simNumber'), address: text('address'),
+  bankAccount: text('bankAccount'), bankName: text('bankName'), hasVerifiedDocuments: boolean('hasVerifiedDocuments').notNull().default(false),
+  photoKtp: text('photoKtp'), photoSim: text('photoSim'), photoStnk: text('photoStnk'), photoSelfie: text('photoSelfie'), photoVehicle: text('photoVehicle'),
+  createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 })
 export const vehicles = pgTable('vehicles', {
   id: serial('id').primaryKey(), userId: text('userId').notNull(), type: text('type').notNull().default('motorcycle'),
-  brand: text('brand'), model: text('model'), plateNumber: text('plateNumber'), color: text('color'), year: integer('year'), createdAt: timestamp('createdAt').notNull().defaultNow(),
+  brand: text('brand'), model: text('model'), plateNumber: text('plateNumber'), color: text('color'), year: integer('year'), stnkNumber: text('stnkNumber'), createdAt: timestamp('createdAt').notNull().defaultNow(),
 })
 export const driverLocations = pgTable('driver_locations', {
   id: serial('id').primaryKey(), userId: text('userId').notNull().unique(), latitude: numeric('latitude', { precision: 10, scale: 7 }).notNull(),

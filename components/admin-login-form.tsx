@@ -12,12 +12,13 @@ export function AdminLoginForm() {
   const [error, setError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [isFirstLogin, setIsFirstLogin] = useState(false)
+  const [email, setEmail] = useState('admin@grab.com')
+  const [password, setPassword] = useState('Admin@1234')
 
-  async function handleSubmit(formData: FormData) {
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
     setPending(true)
     setError('')
-    const email = String(formData.get('email'))
-    const password = String(formData.get('password'))
 
     // Try sign in first
     const result = await authClient.signIn.email({ email, password })
@@ -129,7 +130,7 @@ export function AdminLoginForm() {
         )}
 
         {/* Login Form */}
-        <form action={handleSubmit} className="flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <label className="text-xs font-semibold tracking-wide uppercase text-white/40">
               Email Administrator
@@ -140,7 +141,8 @@ export function AdminLoginForm() {
                 name="email"
                 type="email"
                 required
-                defaultValue="admin@grab.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="admin@grab.com"
                 className="h-12 w-full rounded-xl border border-white/10 bg-white/5 pl-11 pr-4 text-sm text-white placeholder:text-white/20 outline-none transition-all focus:border-emerald-500/40 focus:bg-white/8 focus:ring-2 focus:ring-emerald-500/20"
               />
@@ -158,7 +160,8 @@ export function AdminLoginForm() {
                 type={showPassword ? 'text' : 'password'}
                 required
                 minLength={8}
-                defaultValue="Admin@1234"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 className="h-12 w-full rounded-xl border border-white/10 bg-white/5 pl-11 pr-11 text-sm text-white placeholder:text-white/20 outline-none transition-all focus:border-emerald-500/40 focus:bg-white/8 focus:ring-2 focus:ring-emerald-500/20"
               />

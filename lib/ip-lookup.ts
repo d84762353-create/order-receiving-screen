@@ -5,7 +5,7 @@ import path from 'path'
 // Load DB lazily into memory
 let db: Record<string, string> | null = null
 
-function loadDb() {
+function loadDb(): Record<string, string> {
   if (!db) {
     try {
       const filePath = path.join(process.cwd(), 'data', 'indo-ip-db.json')
@@ -16,7 +16,7 @@ function loadDb() {
       db = {}
     }
   }
-  return db
+  return db as Record<string, string>
 }
 
 /**

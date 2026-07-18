@@ -29,7 +29,8 @@ export const driverProfiles = pgTable('driver_profiles', {
   rating: numeric('rating', { precision: 3, scale: 2 }).notNull().default('5.00'),
   acceptanceRate: integer('acceptanceRate').notNull().default(100), completionRate: integer('completionRate').notNull().default(100),
   emergencyContact: text('emergencyContact'), nik: text('nik'), simNumber: text('simNumber'), address: text('address'),
-  bankAccount: text('bankAccount'), bankName: text('bankName'), hasVerifiedDocuments: boolean('hasVerifiedDocuments').notNull().default(false),
+  bankAccount: text('bankAccount'), bankName: text('bankName'),   hasVerifiedDocuments: boolean('hasVerifiedDocuments').notNull().default(false),
+  hasPaidActivation: boolean('has_paid_activation').notNull().default(false),
   photoKtp: text('photoKtp'), photoSim: text('photoSim'), photoStnk: text('photoStnk'), photoSelfie: text('photoSelfie'), photoVehicle: text('photoVehicle'),
   createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow(),
 })

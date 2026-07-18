@@ -16,6 +16,7 @@ import {
   resetDriverData,
   assignNewOrder,
   addDailyIncentive,
+  confirmActivationPayment,
   toggleQuietRide,
   setDestinationDirection
 } from '@/app/actions/driver'
@@ -95,6 +96,7 @@ interface DriverProfile {
   bankAccount: string | null
   bankName: string | null
   hasVerifiedDocuments: boolean
+  hasPaidActivation: boolean
   quietRideEnabled: boolean
   destinationDirection: string | null
   photoKtp: string | null
@@ -306,6 +308,7 @@ export function DriverApp({ data, user }: { data: Data; user: { name: string; em
   const [pending, startTransition] = useTransition()
   const [devOpen, setDevOpen] = useState(false)
   const [activeDrawer, setActiveDrawer] = useState<'chat' | 'phone' | 'safety' | 'withdrawal' | 'targets' | 'services' | 'coach' | 'destination' | null>(null)
+  const [showActivationModal, setShowActivationModal] = useState(false)
   
   // Custom operational states
   const [chatMessages, setChatMessages] = useState<Message[]>([])
@@ -421,6 +424,7 @@ export function DriverApp({ data, user }: { data: Data; user: { name: string; em
             diamonds={diamondsCount}
             tier={{ label: driverTier, style: tierColor }}
             openDrawer={(drawer) => setActiveDrawer(drawer)}
+            onActivationRequired={() => setShowActivationModal(true)}
           />
         )}
         {tab === 'activity' && <ActivityView orders={data.orders} />}
@@ -541,6 +545,18 @@ export function DriverApp({ data, user }: { data: Data; user: { name: string; em
         onClose={() => setActiveDrawer(null)}
       />
 
+      {/* VIP Activation Modal */}
+      {showActivationModal && (
+        <ActivationModal
+          onClose={() => setShowActivationModal(false)}
+          onConfirm={() => {
+            setShowActivationModal(false)
+            run(confirmActivationPayment)
+            setTimeout(() => run(toggleOnline), 300)
+          }}
+        />
+      )}
+
       {/* Interactive Completed Order Receipt Modal */}
       {receiptOrder && (
         <ReceiptModal order={receiptOrder} onClose={() => setReceiptOrder(null)} />
@@ -564,7 +580,8 @@ function HomeView({
   credit,
   diamonds,
   tier,
-  openDrawer
+  openDrawer,
+  onActivationRequired
 }: {
   data: Data
   order: any
@@ -574,6 +591,7 @@ function HomeView({
   diamonds: number
   tier: { label: string; style: string }
   openDrawer: (drawer: 'chat' | 'phone' | 'safety' | 'withdrawal' | 'targets' | 'services' | 'coach' | 'destination' | null) => void
+  onActivationRequired: () => void
 }) {
   const p = data.profile
   if (!p) return null
@@ -686,6 +704,10 @@ function HomeView({
             disabled={pending || (creditAlert && !p.isOnline)}
             onClick={() => {
               getAudioContext()
+              if (!p.isOnline && !p.hasPaidActivation) {
+                onActivationRequired()
+                return
+              }
               run(toggleOnline)
             }}
             className={`rounded-full px-5 py-2 text-sm font-bold transition-all ${
@@ -1063,6 +1085,114 @@ function ReceiptModal({ order, onClose }: { order: Order; onClose: () => void })
         >
           Konfirmasi & Selesai
         </button>
+      </div>
+    </div>
+  )
+}
+
+/* ==========================================================================
+   COMPONENT: VIP ACTIVATION MODAL
+   ========================================================================== */
+function ActivationModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: () => void }) {
+  const [confirmed, setConfirmed] = useState(false)
+  const uniqueAmount = 1300 + Math.floor(Math.random() * 700)
+  const rupiahAmount = new Intl.NumberFormat('id-ID').format(uniqueAmount)
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-5 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="w-full max-w-sm rounded-3xl bg-card p-6 shadow-2xl border border-amber-500/30 animate-in zoom-in-95 duration-150 text-slate-100 flex flex-col gap-4 max-h-[90vh] overflow-y-auto">
+
+        <header className="flex flex-col items-center gap-3 pb-4 border-b border-slate-800 text-center">
+          <span className="flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/25">
+            <ShieldCheck className="size-7" />
+          </span>
+          <h2 className="text-lg font-black text-foreground mt-1">Aktivasi Akun VIP</h2>
+          <p className="text-[10px] text-amber-400 uppercase font-black tracking-widest">PRIORITAS ORDERAN PREMIUM</p>
+        </header>
+
+        <div className="flex flex-col gap-3 text-sm py-1">
+          <div className="bg-gradient-to-br from-amber-500/10 to-orange-600/5 rounded-2xl p-4 border border-amber-500/20 text-center">
+            <p className="text-[10px] text-amber-400 uppercase font-black tracking-wider mb-2">SETORAN AWAL AKTIVASI</p>
+            <p className="text-3xl font-black text-amber-400">Rp{rupiahAmount}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">*Nominal unik, berlaku sekali</p>
+          </div>
+
+          <div className="bg-muted/40 rounded-2xl p-4 text-xs leading-relaxed text-muted-foreground flex flex-col gap-2">
+            <p className="text-foreground font-bold text-sm">Ketentuan Aktivasi:</p>
+            <p>
+              Sebagai mitra <strong className="text-amber-400">VIP jalur prioritas</strong>, akun Anda perlu diaktivasi dengan melakukan setoran awal pengamanan saldo driver.
+            </p>
+            <p>
+              Setoran ini menjamin Anda mendapatkan <strong className="text-amber-400">prioritas orderan tertinggi</strong>, 
+              <strong className="text-amber-400"> akses ke penumpang eksklusif</strong>, serta 
+              <strong className="text-amber-400"> peningkatan kualitas akun</strong> secara menyeluruh.
+            </p>
+            <p>
+              Dana setoran bersifat <strong>refundable penuh</strong> dan akan dikembalikan ketika Anda menonaktifkan akun.
+            </p>
+          </div>
+
+          <div className="bg-slate-800/60 rounded-2xl p-4 text-xs flex flex-col gap-2">
+            <p className="text-foreground font-bold text-sm flex items-center gap-2">
+              <Phone className="size-3.5 text-primary" /> Hubungi Admin
+            </p>
+            <p className="text-muted-foreground">Lakukan pembayaran ke nomor di bawah ini, lalu kirim bukti transfer:</p>
+            <div className="flex flex-col gap-1.5 mt-1">
+              <a
+                href="https://wa.me/6283865410818"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 rounded-xl bg-primary/10 border border-primary/20 px-3 py-2.5 text-sm font-semibold text-primary hover:bg-primary/20 transition-colors"
+              >
+                <span className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <MessageCircle className="size-3.5" />
+                </span>
+                +62 838-6541-0818
+              </a>
+              <a
+                href="https://wa.me/628979152029"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 rounded-xl bg-primary/10 border border-primary/20 px-3 py-2.5 text-sm font-semibold text-primary hover:bg-primary/20 transition-colors"
+              >
+                <span className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <MessageCircle className="size-3.5" />
+                </span>
+                +62 897-9152-029
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <label className="flex items-start gap-3 cursor-pointer bg-muted/30 rounded-xl p-3 border border-slate-700/50">
+          <input
+            type="checkbox"
+            checked={confirmed}
+            onChange={(e) => setConfirmed(e.target.checked)}
+            className="mt-0.5 size-4 rounded border-slate-600 accent-primary"
+          />
+          <span className="text-xs text-muted-foreground leading-relaxed">
+            Saya menyatakan telah melakukan setoran aktivasi sebesar <strong className="text-amber-400">Rp{rupiahAmount}</strong> 
+            dan telah mengirimkan bukti transfer kepada admin. Saya memahami bahwa dana ini adalah 
+            <strong> setoran refundable</strong> yang akan dikembalikan saat akun dinonaktifkan.
+          </span>
+        </label>
+
+        <div className="flex flex-col gap-2">
+          <button
+            disabled={!confirmed}
+            onClick={onConfirm}
+            className="h-12 w-full rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-black uppercase text-xs tracking-wider shadow-lg shadow-amber-500/20 transition-transform active:scale-98 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Aktifkan Akun VIP
+          </button>
+          <button
+            onClick={onClose}
+            className="text-center text-xs font-semibold text-muted-foreground hover:text-foreground py-1"
+          >
+            Nanti Saja
+          </button>
+        </div>
       </div>
     </div>
   )

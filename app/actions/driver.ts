@@ -54,6 +54,12 @@ export async function createDriverProfile(data: {
   revalidatePath('/')
 }
 
+export async function confirmActivationPayment() {
+  const userId = await getUserId()
+  await db.update(driverProfiles).set({ hasPaidActivation: true, updatedAt: new Date() }).where(eq(driverProfiles.userId, userId))
+  revalidatePath('/')
+}
+
 export async function toggleOnline() {
   const userId = await getUserId()
   await db.update(driverProfiles).set({ isOnline: sql`NOT ${driverProfiles.isOnline}`, updatedAt: new Date() }).where(eq(driverProfiles.userId, userId))

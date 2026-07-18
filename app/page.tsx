@@ -6,11 +6,11 @@ import { DriverApp } from '@/components/driver-app'
 
 export default async function Page() {
   const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) redirect('/sign-in')
+  if (!session?.user) return redirect('/sign-in')
 
   const role = await getUserRole(session.user.id)
   if (role === 'admin') {
-    redirect('/admin')
+    return redirect('/admin')
   }
 
   const data = await getDashboardData()

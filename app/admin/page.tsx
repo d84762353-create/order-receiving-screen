@@ -6,13 +6,13 @@ import { AdminDashboard } from '@/components/admin-dashboard'
 
 export default async function AdminPage() {
   const session = await auth.api.getSession({ headers: await headers() })
-  if (!session?.user) redirect('/admin/login')
+  if (!session?.user) return redirect('/admin/login')
   
   // Check if user has admin role
   const role = await getUserRole(session.user.id)
   if (role !== 'admin') {
     // Not an admin - redirect to admin login
-    redirect('/admin/login')
+    return redirect('/admin/login')
   }
   
   const data = await getAdminDashboardData()

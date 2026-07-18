@@ -8,9 +8,9 @@ export default async function AdminLoginPage() {
   if (session?.user) {
     const role = await getUserRole(session.user.id)
     if (role === 'admin') {
-      redirect('/admin')
+      return redirect('/admin')
     } else {
-      redirect('/')
+      return redirect('/')
     }
   }
   return <AdminLoginForm />

@@ -4,23 +4,17 @@ import { db } from './db'
 import { eq } from 'drizzle-orm'
 import * as schema from './db/schema'
 
-function cleanUrl(url: string | undefined): string | undefined {
-  if (!url || url === '[SENSITIVE]' || url.startsWith('[SENSITIVE]')) return undefined
-  return url
-}
-
 const productionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL
   ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
   : process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
   : undefined
 
-const baseURL = cleanUrl(process.env.BETTER_AUTH_URL) || productionUrl || 'http://localhost:3000'
+const baseURL = productionUrl || 'http://localhost:3000'
 
 const trustedOrigins = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
-  process.env.V0_RUNTIME_URL,
   process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`,
   process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`,
   baseURL,
